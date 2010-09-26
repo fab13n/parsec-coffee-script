@@ -1,6 +1,8 @@
 # Grammar generator
 #
 
+log = ->
+
 this.exports = this unless process?
 
 fail = exports.fail = ["fail"]
@@ -74,7 +76,7 @@ exports.Parser = class Parser
         if @builder? then x = @builder x...
         return fail if x==fail
         (x = t x) for t in @transformers
-        print "/ built #{x}\n\\ by #{@toString()[0...30]}...\n"
+        log "/ built #{x}\n\\ by #{@toString()[0...30]}...\n"
         return x
 
     # Change the builder. Argument can be:
@@ -126,6 +128,8 @@ exports.Const = class Const extends Parser
     # field values: optional set of accepted token values
     typename: 'Const'
 
+    # t: type of token
+    # valueKeyed: if true, the value is expected to be included in the key.
     constructor: (@t, valueKeyed, values...) ->
         if values.length>0
             @values = { }
@@ -144,10 +148,10 @@ exports.Const = class Const extends Parser
 
     parse: (lx) ->
         tok = lx.peek()
-        print "is #{tok} a #{@}? "
-        if tok.t != @t then print "no!\n"; return fail
-        if @values? and not @values[tok.v] then print "no!\n"; return fail
-        print "yes!\n"
+        log "is #{tok} a #{@}? "
+        if tok.t != @t then log "no!\n"; return fail
+        if @values? and not @values[tok.v] then log "no!\n"; return fail
+        log "yes!\n"
         return @build (lx.next().v or true)
 
 exports.id      = new Const 'id'
@@ -157,6 +161,15 @@ exports.dedent  = new Const 'dedent'
 exports.newline = new Const 'newline'
 exports.keyword = keyword = (values...) -> new Const 'keyword', true, values...
 
+#-------------------------------------------------------------------------------
+# Read any keyword.
+#-------------------------------------------------------------------------------
+exports.AnyKeyword = class AnyKeyword extends Parser
+    parse: (lx) ->
+        tok = lx.peek()
+        if tok.t == 'keyword' then return lx.next().v
+        else return fail
+exports.anyKeyword = new AnyKeyword
 
 #-------------------------------------------------------------------------------
 # Compose several parsers in a sequence.
@@ -180,18 +193,18 @@ exports.Sequence = class Sequence extends Parser
         result   = []
         bookmark = lx.save()
         for child, i in @children
-            print "Sequence child, token=#{lx.peek()}, parser=#{child.toString()[0..32]}...\n"
+            log "Sequence child, token=#{lx.peek()}, parser=#{child.toString()[0..32]}...\n"
             x = child.parse(lx)
             if x == fail
                 if @backtrack or i==0
-                    print ">>>> BACKTRACKING FROM #{lx.peek()} TO "
+                    log ">>>> BACKTRACKING FROM #{lx.peek()} TO "
                     lx.restore bookmark
-                    print "#{lx.peek()} in #{@toString()[0...30]} <<<<<\n"
+                    log "#{lx.peek()} in #{@toString()[0...30]} <<<<<\n"
                     return fail
                 else
                     @error "failed on element ##{i}"
             else result.push x
-            #rl=result.length; print "result of child #{rl}: #{result[rl-1]}\n"
+            #rl=result.length; log "result of child #{rl}: #{result[rl-1]}\n"
         return @build result
 
     notify: -> @keys = firstChild.keys; super
@@ -264,7 +277,7 @@ exports.Choice = class Choice extends Parser
     notify: -> @reindex; super
 
     parse: (lx) ->
-        print "parse Choice on #{lx.peek()}\n"
+        log "parse Choice on #{lx.peek()}\n"
         nextTokenKey = lx.peek().getKey()
         parsers = @indexed[nextTokenKey]
         if parsers then for p in parsers
@@ -333,8 +346,8 @@ exports.List = class List extends Parser
             if p==fail then break
             results.push p
             if @separator? and @separator.parse(lx)==fail then break
-            print "#{@} again\n"
-        print "#{@} done, #{results.length} elements\n" if results.length>0
+            log "#{@} again\n"
+        log "#{@} done, #{results.length} elements\n" if results.length>0
 
         return fail if not @canBeEmpty and results.length==0
         return @build results
@@ -354,7 +367,7 @@ exports.Wrap = class Wrap extends Parser
         @keys = @parser.keys
         super
 
-    parse: (lx) -> print "lx in wrap=#{lx}\n"; @build @parser.parse lx
+    parse: (lx) -> log "lx in wrap=#{lx}\n"; @build @parser.parse lx
 
     setParser: (parser) ->
         @parser = lift parser
@@ -439,47 +452,47 @@ exports.Expr = class Expr extends Parser
         x.parser = lift x.parser
         x.prec ?= 50
         keys = x.parser.keys
-        #print "keys to add: #{(k for k of keys).join ', '}\n"
+        #log "keys to add: #{(k for k of keys).join ', '}\n"
         unless keys
             @error "duplicate default" if set.default
             set.default = x
-            #print "added default\n"
+            #log "added default\n"
         else for key of keys
             @error "duplicate key #{key}" if set[key]
             set[key] = x
-            print "added rule to key #{key}\n"
+            log "added rule to key #{key}\n"
         return @
 
     parse: (lx, prec) ->
         prec ?= 0
-        print "parsing starts at precedence #{prec}\n"
+        log "parsing starts at precedence #{prec}\n"
         e = @parsePrefix lx, prec
         return fail if e==fail
         again = true
         while again
             again = false
             e2 = @parseSuffix lx, e, prec
-            if e2 != fail then e=e2; again=true; print "suffix success\n"
+            if e2 != fail then e=e2; again=true; log "suffix success\n"
             e2 = @parseInfix  lx, e, prec
-            if e2 != fail then e=e2; again=true; print "infix success\n"
+            if e2 != fail then e=e2; again=true; log "infix success\n"
         @error "expr fucked up" if e==fail
-        print "parsing done, e=#{e}\n"
+        log "parsing done, e=#{e}\n"
         return @build e
 
     parsePrefix: (lx, prec) ->
-        print "prefix\n"
+        log "prefix\n"
         p  = @getParser @prefix, lx.peek()
         op = p.parser.parse lx if p?
-        print "op:#{op}\n"
+        log "op:#{op}\n"
         if p and op != fail
             e = @parse lx, p.prec
             return @partialBuild p, op, e
         else
-            print "primary, then.\n"
+            log "primary, then.\n"
             return @primary.parse lx
 
     parseInfix:  (lx, e, prec) ->
-        print "infix\n"
+        log "infix\n"
         p  = @getParser @infix, lx.peek()
         return fail unless p?
 
@@ -494,23 +507,23 @@ exports.Expr = class Expr extends Parser
             return @partialBuild p, operands
 
         else if p.prec > prec or p.prec == prec and p.assoc == 'right'
-            print "parsing operator #{lx.peek().v} of precedence #{p.prec} because current precedence is #{prec}\n"
+            log "parsing operator #{lx.peek().v} of precedence #{p.prec} because current precedence is #{prec}\n"
             op = p.parser.parse lx
             return fail if op==fail
-            print "about to parse e2, next is #{lx.peek()}\n"
+            log "about to parse e2, next is #{lx.peek()}\n"
             e2 = @parse lx, p.prec
             # TODO: undo & return fail on operand parsing failure
-            print "e2=#{e2}\n"
+            log "e2=#{e2}\n"
             return @partialBuild p, e, op, e2
 
         else if p.assoc == 'none' and p.prec == prec
-            print "Waring, non-associative operator can't resolve precedence\n"
+            log "Waring, non-associative operator can't resolve precedence\n"
             return fail
 
         else return fail
 
     parseSuffix: (lx, e, prec) ->
-        print "suffix\n"
+        log "suffix\n"
         p = @getParser @suffix, lx.peek()
         return fail unless p?
         op = p.parser.parse lx
@@ -518,16 +531,16 @@ exports.Expr = class Expr extends Parser
         return @partialBuild p, e, op
 
     getParser: (set, token) ->
-        print "getting expr parser for key #{token}\n"
+        log "getting expr parser for key #{token}\n"
         return set[token.getKey()] or set.default
 
     partialBuild: (p, args...) ->
-        print "pbuild #{args}, "
+        log "pbuild #{args}, "
         b = p.builder
         if not b then r = args[0]
         else if typeof b == 'number' then r = args[b]
         else r = b(args...)
-        print "result = #{r}\n"
+        log "result = #{r}\n"
         return r
 
     toString: -> "Expr(#{@primary}...)"

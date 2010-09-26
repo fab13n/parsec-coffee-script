@@ -1,5 +1,8 @@
 this.exports = this unless process?
 
+#log = ->
+log = print
+
 OP_CHARS = /[~!@$%^&*()\-=+[\]{}|;:,.<>\/?]/
 NUMBER   = /^(0x[0-9a-fA-F]+)|(([0-9]+(\.[0-9]+)?|\.[0-9]+)(e[+\-]?[0-9]+)?)/
 
@@ -111,7 +114,7 @@ exports.Lexer = class Lexer
     # Debug trace helper
     #---------------------------------------------------------------------------
     pWhere: (msg) ->
-        print "#{msg or ''} [#{@i} '#{@src[@i..@i+5].replace( /\n/g,'\\n')}...']\n"
+        log "#{msg or ''} [#{@i} '#{@src[@i..@i+5].replace( /\n/g,'\\n')}...']\n"
 
 
     #---------------------------------------------------------------------------
@@ -489,7 +492,7 @@ exports.Lexer = class Lexer
         n          ?= 1
         @tokens    ?= @tokenize()
         @readIndex ?= -1
-        # print  "? peek #{@tokens[@readIndex+n]}\n"
+        # log  "? peek #{@tokens[@readIndex+n]}\n"
         return @tokens[@readIndex+n]
 
     #---------------------------------------------------------------------------
@@ -498,7 +501,7 @@ exports.Lexer = class Lexer
     next: (n) ->
         n ?= 1
         result = @peek(n)
-        print "> consumed #{tok}\n" for tok in @tokens[@readIndex+1..@readIndex+n]
+        log "> consumed #{tok}\n" for tok in @tokens[@readIndex+1..@readIndex+n]
         @readIndex += n
         return result
 

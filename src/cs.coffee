@@ -1,11 +1,10 @@
-
 gg  = require './GrammarGenerator'
 lex = require './Lexer'
 
-
 cs = exports
 
-# TODO: indented toString
+# tree: temporary hack to generate AST-like stuff without actually linking
+# with the CS backend compiler.
 tree = (x...) -> new Tree x...
 class Tree
     constructor: (@tag, @children...) ->
@@ -50,7 +49,7 @@ cs.keywords = new lex.Keywords(
   "native", "__hasProp", "__extends", "__slice", "-=", "+=", "/=",
   "*=", "%=", "||=", "&&=", "?=", "<<=", ">>=", ">>>=", "&=", "^=",
   "|=", "!!", "typeof", "delete", "&&", "||", "<<", ">>", ">>>", "<=",
-  ">=", "++", "--", "->", "=>", "::", "==", "===")
+  ">=", "++", "--", "->", "=>", "::", "==", "===", "..", "...")
 
 # Generic expression, to be populated later
 cs.expr = gg.expr()
@@ -162,7 +161,7 @@ cs.class = gg.sequence(
 cs.at = gg.sequence(
     "@", gg.maybe [gg.noSpace, gg.id]
 ).setBuilder (x) ->
-    if x[1] then tree 'Accessor', (tree 'Literal', 'this'), x[1]
+    if x[1] then tree 'Accessor', (tree 'Literal', 'this'), x[1][1]
     else tree 'Literal', 'this'
 
 # expressions starting with parentheses: normal parentheses and lambdas
@@ -178,7 +177,7 @@ cs.parentheses = gg.sequence(
     if glyphAndCode
         [glyph, code] = glyphAndCode
         tag = if glyph=='->' then 'Function' else 'BoundFunction'
-        return tree tag, code
+        return tree tag, content, code
     else if x[1].length != 1
         return gg.fail
     else return x[1][0]
@@ -198,6 +197,20 @@ cs.arguments = gg.choice(
     cs.argumentsInParentheses,
     cs.argumentsWithoutParentheses
 )
+
+# super invocation, with or without arguments
+cs.super = gg.sequence("super", gg.maybe cs.arguments).setBuilder (x) ->
+    tree 'Call', 'super',  x[1] or [tree 'Splat', (tree 'Literal', 'arguments')]
+
+# accessor suffix.
+# TODO: handle slices
+cs.bracketAccessor = gg.sequence(
+    gg.noSpace, "[", cs.expr, "]"
+).setBuilder 2
+
+cs.dotAccessor = gg.sequence(
+    ".", gg.choice(gg.id, gg.anyKeyword)
+).setBuilder 1
 
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
@@ -220,15 +233,19 @@ cs.primary = gg.choice(
     cs.for,
     cs.switch,
     cs.class,
+    cs.super,
     cs.parentheses,
     cs.at
 )
 
 cs.expr.setPrimary cs.primary
 
+# TODO: set proper precedences
+
 # helpers for operator declarations
-prefix = (op, prec) ->
-    cs.expr.addPrefix {parser:op, prec, builder: (_, a) -> tree op, a}
+prefix = (op, prec, builder) ->
+    builder ?= (_, a) -> tree op, a
+    cs.expr.addPrefix {parser:op, prec, builder}
 infix  = (op, prec, assoc) ->
     assoc ?= 'left'
     cs.expr.addInfix {parser:op, prec, assoc, builder: (a,_,b) -> tree op, a, b}
@@ -246,10 +263,14 @@ infix 'unless', 00, 'right'
 
 prefix 'new',    100
 prefix 'throw',  100
+prefix '->',     10, (_, body) -> tree "Function", [], body
 
-suffix cs.arguments,   100, (f, args) -> tree "Call", f, args, false
-suffix "?",            100, (x, _) -> tree "Existence", x
-suffix cs.whileLine,  100, (x, w) -> tree "While", w.cond, w.invert, w.guard, [x]
+suffix cs.arguments, 100, (f, args) -> tree "Call", f, args, false
+suffix "?",          100, (x, _) -> tree "Existence", x
+suffix cs.whileLine, 100, (x, w) -> tree "While", w.cond, w.invert, w.guard, [x]
+suffix "...",        100, (x, _) -> tree "Splat", x
+suffix cs.bracketAccessor, 100, (x, i) -> tree "Accessor", x, i
+suffix cs.dotAccessor, 100, (x, i) -> tree "Accessor", x, tree "Value", i
 
 # main parsing function
 cs.parse = (parser, src) ->
