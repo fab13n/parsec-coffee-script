@@ -164,32 +164,20 @@ cs.at = gg.sequence(
     if x[1] then tree 'Accessor', (tree 'Literal', 'this'), x[1][1]
     else tree 'Literal', 'this'
 
-# expressions starting with parentheses: normal parentheses and lambdas
-cs.parentheses = gg.sequence(
-    '(', gg.list(cs.expr, ','), ')',
-    gg.choice(
-        ['->', cs.lineOrBlock],
-        ['=>', cs.lineOrBlock],
-        gg.nothing
-    )
-).setBuilder (x) ->
-    [_, content, _, glyphAndCode] = x
-    if glyphAndCode
-        [glyph, code] = glyphAndCode
-        tag = if glyph=='->' then 'Function' else 'BoundFunction'
-        return tree tag, content, code
-    else if x[1].length != 1
-        return gg.fail
-    else return x[1][0]
+# Single function call argument. splats "..." are authorized only after
+# parameters and arguments, in order to avoid confusion with slices.
+cs.argument = gg.sequence(
+    cs.expr, gg.maybe "..."
+).setBuilder (x) -> if x[1] then tree 'Splat', x[0] else x[0]
 
 # function args with explicit parentheses
 cs.argumentsInParentheses = gg.sequence(
-    gg.noSpace, '(', gg.list(cs.expr, ',', "canBeEmpty"), ')'
+    gg.noSpace, '(', gg.list(cs.argument, ',', "canBeEmpty"), ')'
 ).setBuilder 2
 
 # function args without parentheses
 cs.argumentsWithoutParentheses = gg.sequence(
-    gg.space, gg.list(cs.expr, ',')
+    gg.space, gg.list(cs.argument, ',')
 ).setBuilder 1
 
 # function args
@@ -201,6 +189,24 @@ cs.arguments = gg.choice(
 # super invocation, with or without arguments
 cs.super = gg.sequence("super", gg.maybe cs.arguments).setBuilder (x) ->
     tree 'Call', 'super',  x[1] or [tree 'Splat', (tree 'Literal', 'arguments')]
+
+# expressions starting with parentheses: normal parentheses and lambdas
+cs.parentheses = gg.sequence(
+    '(', gg.list(cs.argument, ','), ')',
+    gg.choice(
+        ['->', cs.lineOrBlock],
+        ['=>', cs.lineOrBlock],
+        gg.nothing
+    )
+).setBuilder (x) ->
+    [_, content, _, glyphAndCode] = x
+    if glyphAndCode
+        [glyph, code] = glyphAndCode
+        tag = if glyph=='->' then 'Function' else 'BoundFunction'
+        return tree tag, content, code
+    else if content.length != 1 # TODO: forbid splats?
+        return gg.fail
+    else return content[0]
 
 # accessor suffix.
 # TODO: handle slices
@@ -268,7 +274,6 @@ prefix '->',     10, (_, body) -> tree "Function", [], body
 suffix cs.arguments, 100, (f, args) -> tree "Call", f, args, false
 suffix "?",          100, (x, _) -> tree "Existence", x
 suffix cs.whileLine, 100, (x, w) -> tree "While", w.cond, w.invert, w.guard, [x]
-suffix "...",        100, (x, _) -> tree "Splat", x
 suffix cs.bracketAccessor, 100, (x, i) -> tree "Accessor", x, i
 suffix cs.dotAccessor, 100, (x, i) -> tree "Accessor", x, tree "Value", i
 
