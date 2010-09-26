@@ -38,7 +38,6 @@ src.super = """
 
 src.fail_super = "super (1,2)"
 
-# TODO: interaction with numbers, splices
 src.splat = """
     f x...
     (x...) -> y

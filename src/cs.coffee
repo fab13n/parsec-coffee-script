@@ -211,8 +211,17 @@ cs.parentheses = gg.sequence(
 # accessor suffix.
 # TODO: handle slices
 cs.bracketAccessor = gg.sequence(
-    gg.noSpace, "[", cs.expr, "]"
-).setBuilder 2
+    gg.noSpace, "[", cs.expr,
+    gg.choice(
+        gg.sequence("...", cs.expr),
+        gg.sequence("..", cs.expr),
+        gg.nothing
+    ),
+    "]"
+).setBuilder (x) ->
+    [_, _, a, rest, _] = x
+    if rest then [op, b] = rest; return [ a, op, b ]
+    else return [ a ]
 
 cs.dotAccessor = gg.sequence(
     ".", gg.choice(gg.id, gg.anyKeyword)
@@ -274,8 +283,11 @@ prefix '->',     10, (_, body) -> tree "Function", [], body
 suffix cs.arguments, 100, (f, args) -> tree "Call", f, args, false
 suffix "?",          100, (x, _) -> tree "Existence", x
 suffix cs.whileLine, 100, (x, w) -> tree "While", w.cond, w.invert, w.guard, [x]
-suffix cs.bracketAccessor, 100, (x, i) -> tree "Accessor", x, i
 suffix cs.dotAccessor, 100, (x, i) -> tree "Accessor", x, tree "Value", i
+suffix cs.bracketAccessor, 100, (x, i) ->
+    [ a, op, b ] = i
+    return tree "Accessor", x, a unless op
+    throw new Error "range index not implemented"
 
 # main parsing function
 cs.parse = (parser, src) ->
