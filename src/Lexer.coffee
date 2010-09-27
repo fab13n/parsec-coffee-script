@@ -29,7 +29,7 @@ class Token
     constructor: (@t, @v, @i, @s) ->
     getKey:   -> if @t=='keyword' then @t+"-"+@v else @t #TODO: temp hack
     toString: ->
-        "#{@t}[#{@i}#{if @v then ":'#{@v}'" else ""}]"
+        "#{@t}[#{@i}#{if @v then ":'#{@v}'" else ""}#{if @s then ' S' else ''}]"
 
 #-------------------------------------------------------------------------------
 # Registered keywords:
@@ -104,6 +104,7 @@ exports.Lexer = class Lexer
         @indentLevels = [0]
         @spaced       = true
         tokens        = [@token 'indent', 0]
+        @spaced       = true # undone by @token above
         loop
             stepTokens = @step()
             break unless stepTokens?
@@ -147,7 +148,9 @@ exports.Lexer = class Lexer
         else if src_i.match /[A-Za-z_]/
             return [ @getWord() ]
         else if src_i == '\n'
-            return @getNewlines()
+            x = @getNewlines()
+            @spaced = true
+            return x
         else if src_i == '/' and @regexAllowedHere()
             t = @getInterpolation 'regex', '/'
             if (t2=@getRegexFlags()) then t.push t2
