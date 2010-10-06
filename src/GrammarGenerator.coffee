@@ -2,6 +2,7 @@
 #
 
 log = ->
+#log = print
 
 this.exports = this unless process?
 
@@ -154,12 +155,13 @@ exports.Const = class Const extends Parser
         log "yes!\n"
         return @build (lx.next().v or true)
 
-exports.id      = new Const 'id'
-exports.number  = new Const 'number'
-exports.indent  = new Const 'indent'
-exports.dedent  = new Const 'dedent'
-exports.newline = new Const 'newline'
-exports.keyword = keyword = (values...) -> new Const 'keyword', true, values...
+exports.id         = new Const 'id'
+exports.number     = new Const 'number'
+exports.indent     = new Const 'indent'
+exports.dedent     = new Const 'dedent'
+exports.newline    = new Const 'newline'
+exports.javascript = new Const 'javascript'
+exports.keyword    = keyword = (values...) -> new Const 'keyword', true, values...
 
 #-------------------------------------------------------------------------------
 # Read any keyword.
@@ -193,7 +195,7 @@ exports.Sequence = class Sequence extends Parser
         result   = []
         bookmark = lx.save()
         for child, i in @children
-            log "Sequence child, token=#{lx.peek()}, parser=#{child.toString()[0..32]}...\n"
+            log "Sequence child ##{i}, token=#{lx.peek()}, parser=#{child.toString()[0..32]}...\n"
             x = child.parse(lx)
             if x == fail
                 if @backtrack or i==0
@@ -231,13 +233,14 @@ exports.Choice = class Choice extends Parser
         @keys      = { }
         @indexedP  = { }
         @unindexedP= [ ]
-        @add children...
+        @add children... if children.length>0
 
     add: (prec, children...) ->
         if typeof prec != 'number'
             children.unshift prec
             prec = 50
         @addOneChild child, prec-- for child in children
+        return @
 
     addOneChild: (child, prec) ->
         insertWithPrec = (list, listP, x, p) ->
@@ -419,7 +422,7 @@ exports.If = class If extends Parser
 # * 'none':  an ambiguous expression such as A+B+C is illegal
 # * 'left':  A+B+C is interpreted as (A+B)+C
 # * 'right': A+B+C is interpreted as A+(B+C)
-# * 'list':  the operator or n-ary rather than binary, A+B+C is interpreted
+# * 'flat':  the operator is n-ary rather than binary, A+B+C is interpreted
 #            as +(A, B, C).
 #
 # TODO: transformers should be applied on all intermediate sub-expressions.

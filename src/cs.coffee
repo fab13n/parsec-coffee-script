@@ -166,18 +166,18 @@ cs.at = gg.sequence(
 
 # Single function call argument. splats "..." are authorized only after
 # parameters and arguments, in order to avoid confusion with slices.
-cs.argument = gg.sequence(
+cs.exprOrSplat = gg.sequence(
     cs.expr, gg.maybe "..."
 ).setBuilder (x) -> if x[1] then tree 'Splat', x[0] else x[0]
 
 # function args with explicit parentheses
 cs.argumentsInParentheses = gg.sequence(
-    gg.noSpace, '(', gg.list(cs.argument, ',', "canBeEmpty"), ')'
+    gg.noSpace, '(', gg.list(cs.exprOrSplat, ',', "canBeEmpty"), ')'
 ).setBuilder 2
 
 # function args without parentheses
 cs.argumentsWithoutParentheses = gg.sequence(
-    gg.space, gg.list(cs.argument, ',')
+    gg.space, gg.list(cs.exprOrSplat, ',')
 ).setBuilder 1
 
 # function args
@@ -192,7 +192,7 @@ cs.super = gg.sequence("super", gg.maybe cs.arguments).setBuilder (x) ->
 
 # expressions starting with parentheses: normal parentheses and lambdas
 cs.parentheses = gg.sequence(
-    '(', gg.list(cs.argument, ','), ')',
+    '(', gg.list(cs.exprOrSplat, ','), ')',
     gg.choice(
         ['->', cs.lineOrBlock],
         ['=>', cs.lineOrBlock],
@@ -227,6 +227,27 @@ cs.dotAccessor = gg.sequence(
     ".", gg.choice(gg.id, gg.anyKeyword)
 ).setBuilder 1
 
+cs.listWithIndent = (primary) ->
+    element = gg.choice()
+    nested = gg.list(
+        element, gg.choice(gg.newline, ",")
+    ).setBuilder (x) ->  [].concat(x...)
+    element.add(
+        gg.wrap(primary).setBuilder((x) -> [x]),
+        gg.sequence(gg.indent, nested, gg.dedent).setBuilder 1
+    )
+    return nested
+
+cs.array = gg.sequence(
+    gg.space,
+    "[",
+    cs.listWithIndent(cs.exprOrSplat),
+    gg.maybe(","),
+    "]"
+).setBuilder (x) -> tree "Array", x[2]
+
+
+
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
 cs.primary = gg.choice(
@@ -235,7 +256,7 @@ cs.primary = gg.choice(
     #gg.regexp,
     #gg.string, not implemented
     # gg.js,
-    # array,
+    cs.array,
     # object,
     gg.choice("true", "yes", "on").setBuilder(-> tree 'Literal', 'true'),
     gg.choice("false", "no", "off").setBuilder(-> tree 'Literal', 'false'),
@@ -287,7 +308,7 @@ suffix cs.dotAccessor, 100, (x, i) -> tree "Accessor", x, tree "Value", i
 suffix cs.bracketAccessor, 100, (x, i) ->
     [ a, op, b ] = i
     return tree "Accessor", x, a unless op
-    throw new Error "range index not implemented"
+    return tree "RangeAccessor", x, op, a, b
 
 # main parsing function
 cs.parse = (parser, src) ->

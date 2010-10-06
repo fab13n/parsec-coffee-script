@@ -65,7 +65,19 @@ src.accessor = """
     x[1][2][3]
     x.y
     x.class
+    x[1..10]
+    x[1...10]
 """
+
+src.array = """
+    x( [2])
+"""
+
+# multiple values -> index forbidden
+src.fail_array = """
+    x[1,2]
+"""
+
 
 for name, x of src
     print "\n***** Test #{name} *****\n"
