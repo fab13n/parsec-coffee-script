@@ -223,18 +223,35 @@ cs.bracketAccessor = gg.sequence(
     if rest then [op, b] = rest; return [ a, op, b ]
     else return [ a ]
 
+# object.field
 cs.dotAccessor = gg.sequence(
     ".", gg.choice(gg.id, gg.anyKeyword)
 ).setBuilder 1
 
+# Functor to support comma-separated lists with arbitary indentations.
+# The separator could easily be made paametric, but it doesn't seem
+# necessary for coffeescript.
 cs.listWithIndent = (primary) ->
+    separator = (lx) ->
+        tok = lx.peek(1)
+        return gg.fail unless tok.t=='keyword' and tok.v==','
+        tok_t = lx.peek(2).t
+        if tok_t=='newline'
+            lx.next(2)
+            return true
+        else if tok_t=='indent' or tok_t=='dedent'
+            return gg.fail
+        else # comma followed by a non-newline-like token
+            lx.next() # consume comma
+            return true
+
     element = gg.choice()
     nested = gg.list(
-        element, gg.choice(gg.newline, ",")
-    ).setBuilder (x) ->  [].concat(x...)
+        element, separator
+    ).setBuilder (x) -> [].concat(x...) # flatten list-of-lists into list
     element.add(
         gg.wrap(primary).setBuilder((x) -> [x]),
-        gg.sequence(gg.indent, nested, gg.dedent).setBuilder 1
+        gg.sequence(gg.indent, nested, gg.maybe ',', gg.dedent).setBuilder 1
     )
     return nested
 

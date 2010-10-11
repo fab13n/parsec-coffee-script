@@ -4,11 +4,15 @@ gg = require "./../src/GrammarGenerator"
 
 src = { }
 
+# basic identifier
 src.id = "foo"
 
-src.fail_keyword = "if"
+# Don't accept keywords as id
+src.fail_id = "if"
 
-src.call = """
+
+# function calls
+src.calls = """
     foo()
     foo(bar)
     foo(bar, bar)
@@ -17,25 +21,25 @@ src.call = """
     foo foo bar, bar
 """
 
+# no space before function args
 src.fail_call = "foo (1,2,3)"
 
-src.splat = """
-    foo...
-    foo bar...
-"""
-
-src.lambda = """
+# anonymous functions
+src.lambdas = """
     (x) -> x
     (x, y) -> x+y
     -> meh
+    (x) -> (y) -> curry
 """
 
+# super invocations
 src.super = """
     super
     super 1, 2, 3
     super(1,2,3)
 """
 
+# as for functions, no space before args in parentheses
 src.fail_super = "super (1,2)"
 
 src.splat = """
@@ -43,10 +47,12 @@ src.splat = """
     (x...) -> y
 """
 
+# Splats not accepted except as args or params
 src.fail_splat = """
     x...
 """
 
+# at-sign
 src.at = """
     foo @
     @foo
@@ -78,7 +84,14 @@ src.fail_array = """
     x[1,2]
 """
 
+# This is accepted because it's a list arg, not an index
+# TODO: doesn't work without parentheses, indentation handling also broken.
+src.not_an_accessor = """
+    x( [1,2,3])
+"""
 
+
+# Pass all tests in sequence
 for name, x of src
     print "\n***** Test #{name} *****\n"
     t = cs.parse x
