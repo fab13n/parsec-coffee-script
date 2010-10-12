@@ -3,13 +3,18 @@ lex = require './Lexer'
 
 cs = exports
 
+################################################################################
 # tree: temporary hack to generate AST-like stuff without actually linking
 # with the CS backend compiler.
+################################################################################
+
 tree = (x...) -> new Tree x...
+
 class Tree
     constructor: (@tag, @children...) ->
     toString: -> "`#{@tag}(#{@children.join ', '})"
 
+# Print a tree with a readable indentation.
 cs.toIndentedString = (x) ->
     rec = (x, b, i) ->
         if x instanceof Tree
@@ -36,6 +41,8 @@ cs.toIndentedString = (x) ->
     b = [ ]
     rec(x, b, '')
     return b.join("")
+
+################################################################################
 
 # reserved keywords
 cs.keywords = new lex.Keywords(
@@ -231,39 +238,32 @@ cs.dotAccessor = gg.sequence(
 # Functor to support comma-separated lists with arbitary indentations.
 # The separator could easily be made paametric, but it doesn't seem
 # necessary for coffeescript.
-cs.listWithIndent = (primary) ->
-    separator = (lx) ->
-        tok = lx.peek(1)
-        return gg.fail unless tok.t=='keyword' and tok.v==','
-        tok_t = lx.peek(2).t
-        if tok_t=='newline'
-            lx.next(2)
-            return true
-        else if tok_t=='indent' or tok_t=='dedent'
-            return gg.fail
-        else # comma followed by a non-newline-like token
-            lx.next() # consume comma
-            return true
+#
+# newlines and indents are accepted after a comma
+# warning: indents cause dedents. they must be dealt with properly.
+# proposal: dedents to a level >= initial level are accepted
+cs.listWithIndent = (prefix, primary, suffix) ->
 
-    element = gg.choice()
-    nested = gg.list(
-        element, separator
-    ).setBuilder (x) -> [].concat(x...) # flatten list-of-lists into list
-    element.add(
-        gg.wrap(primary).setBuilder((x) -> [x]),
-        gg.sequence(gg.indent, nested, gg.maybe ',', gg.dedent).setBuilder 1
-    )
-    return nested
+    initialIndentation = false
 
-cs.array = gg.sequence(
-    gg.space,
-    "[",
-    cs.listWithIndent(cs.exprOrSplat),
-    gg.maybe(","),
-    "]"
-).setBuilder (x) -> tree "Array", x[2]
+    class StoreInitialIndentation extends gg.EpsilonParser
+        parse: (lx) ->
+            initialIndentation = lx.getCurrentIndentation()
 
+    skipAcceptableDedents = (lx) ->
+        lx.next() while (tok=lx.peek()).t=='dedent' and tok.v>=initialIndentation
 
+    separator = gg.sequence(",", skipAcceptableDedents, gg.choice(gg.newline, gg.indent, gg.nothing))
+
+    return gg.sequence(
+        new StoreInitialIndentation,
+        prefix,
+        gg.list(primary, separator),
+        suffix,
+        skipAcceptableDedents
+    ).setBuilder 2
+
+cs.array = cs.listWithIndent([gg.space, "["], cs.exprOrSplat, [gg.maybe(","), "]"])
 
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.

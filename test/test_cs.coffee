@@ -87,9 +87,23 @@ src.fail_array = """
 # This is accepted because it's a list arg, not an index
 # TODO: doesn't work without parentheses, indentation handling also broken.
 src.not_an_accessor = """
-    x( [1,2,3])
+    x( [a,b,c])
 """
 
+src.indented_array = """
+    [a, b, c]
+    [d, e,
+        f]
+    [g,
+    h,
+    i]
+    [j, k,
+        l, m,
+    n, o]
+    [p, q,]
+    [r,
+    ]
+"""
 
 # Pass all tests in sequence
 for name, x of src

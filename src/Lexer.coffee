@@ -77,6 +77,7 @@ exports.Lexer = class Lexer
     # field forbiddenIndentChar: char forbidden for indentation, '\t' or ' '
     # field lineCache:           line number -> offset correspondance table
     # field readIndex:           current token reading pointer
+    # field streamIndentation:   indentation level of last consummed token
 
     #---------------------------------------------------------------------------
     # Get ready to tokenize string `src', with keywords set `keywords'.
@@ -167,6 +168,8 @@ exports.Lexer = class Lexer
             return [ ]
         else
             @complain "Unexpected char `#{src_i}'."
+
+
 
     #---------------------------------------------------------------------------
     # #-------------------------------------------------------------------------
@@ -395,6 +398,8 @@ exports.Lexer = class Lexer
         @i=j+1
         return @token 'javascript', @src[i...j]
 
+
+
     #---------------------------------------------------------------------------
     # #-------------------------------------------------------------------------
     # #
@@ -477,6 +482,7 @@ exports.Lexer = class Lexer
     lineCache: [-1]
 
 
+
     #---------------------------------------------------------------------------
     # #-------------------------------------------------------------------------
     # #
@@ -506,7 +512,14 @@ exports.Lexer = class Lexer
         result = @peek(n)
         log "> consumed #{tok}\n" for tok in @tokens[@readIndex+1..@readIndex+n]
         @readIndex += n
+        if (result_t=result.t) == 'indent' or result_t == 'dedent'
+            @streamIndentation = result.v
         return result
+
+    #---------------------------------------------------------------------------
+    # Return the indentation level of the current token.
+    #---------------------------------------------------------------------------
+    getCurrentIndentation: -> return @streamIndentation ?= 0
 
     #---------------------------------------------------------------------------
     # Save and restore reading positions.
