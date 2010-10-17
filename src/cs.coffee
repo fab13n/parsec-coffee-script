@@ -318,5 +318,5 @@ cs.parse = (parser, src) ->
         parser = cs[parser]
     else unless parser instanceof gg.Parser
         throw new Error "bad args"
-    parser.parse(new lex.Lexer(src, cs.keywords))
+    parser.call(new lex.Lexer(src, cs.keywords))
 
