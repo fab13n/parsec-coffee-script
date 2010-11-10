@@ -1,4 +1,4 @@
-cs = require "./../src/cs"
+cs = require "./../src/CoffeeScriptParser"
 gg = require "./../src/GrammarGenerator"
 
 

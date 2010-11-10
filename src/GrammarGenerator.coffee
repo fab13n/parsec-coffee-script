@@ -67,18 +67,22 @@ exports.Parser = class Parser
         @listeners    ?= { }
         @backtrack    ?= true
 
-    # Execute the parser on a lexer stream, and return the result or false.
-    # If the result is false, the lexer stream must be returned unchanged.
-    parse: (lx) -> @error "Invalid parser"
-
-    # Apply the builder and the transformers;
-    # intended to be called from @parse.
-    build: (x...) ->
-        if @builder? then x = @builder x...
+    # Run the parser on the token stream `lx', consumming tokens out of it
+    # if applicable. Return the object `fail' and leaves the token stream
+    # unchanged if parsing fails.
+    call: (lx) ->
+        x = @parse(lx)
         return fail if x==fail
-        (x = t x) for t in @transformers
+        if @builder? then x = @builder x
+        (x = t(x)) for t in @transformers
         log "/ built #{x}\n\\ by #{@toString()[0...30]}...\n"
         return x
+
+    # Internal parsing method: return either a result or `fail', by consumming
+    # tokens from lx.
+    # This is a protected method which must not be called from outside: use
+    # the wrapping method @call(lx) instead.
+    parse: (lx) -> @error "Invalid parser"
 
     # Change the builder. Argument can be:
     #  * a builder function;
@@ -116,7 +120,7 @@ exports.LiftedFunction = class LiftedFunction extends Parser
     # field f: function to be applied
     typename:    'Function'
     constructor: (@f) -> super
-    parse:       (lx) -> return @build @f(lx)
+    parse:       (lx) -> return @f(lx)
 
 
 
@@ -153,7 +157,7 @@ exports.Const = class Const extends Parser
         if tok.t != @t then log "no!\n"; return fail
         if @values? and not @values[tok.v] then log "no!\n"; return fail
         log "yes!\n"
-        return @build (lx.next().v or true)
+        return lx.next().v or true
 
 exports.id         = new Const 'id'
 exports.number     = new Const 'number'
@@ -196,7 +200,7 @@ exports.Sequence = class Sequence extends Parser
         bookmark = lx.save()
         for child, i in @children
             log "Sequence child ##{i}, token=#{lx.peek()}, parser=#{child.toString()[0..32]}...\n"
-            x = child.parse(lx)
+            x = child.call(lx)
             if x == fail
                 if @backtrack or i==0
                     log ">>>> BACKTRACKING FROM #{lx.peek()} TO "
@@ -207,7 +211,7 @@ exports.Sequence = class Sequence extends Parser
                     @error "failed on element ##{i}"
             else result.push x
             #rl=result.length; log "result of child #{rl}: #{result[rl-1]}\n"
-        return @build result
+        return result
 
     notify: -> @keys = firstChild.keys; super
 
@@ -284,11 +288,11 @@ exports.Choice = class Choice extends Parser
         nextTokenKey = lx.peek().getKey()
         parsers = @indexed[nextTokenKey]
         if parsers then for p in parsers
-            result = p.parse lx
-            return @build result unless result==fail
+            result = p.call lx
+            return result unless result==fail
         for p in @unindexed
-            result = p.parse lx
-            return @build result unless result==fail
+            result = p.call lx
+            return result unless result==fail
         return fail
 
     toString: ->
@@ -309,8 +313,8 @@ exports.Must = class Must extends Parser
         @parser.addListener @
 
     parse: (lx) ->
-        result = @parser.parse(lx)
-        if result==fail then @error() else return @build result
+        result = @parser.call(lx)
+        if result==fail then @error() else return result
 
 #-------------------------------------------------------------------------------
 # TODO: need to create proper messages
@@ -324,8 +328,8 @@ exports.Maybe = class Maybe extends Parser
         @parser = lift parser
 
     parse: (lx) ->
-        result = @parser.parse(lx)
-        if result==fail then return false else return @build result
+        result = @parser.call(lx)
+        if result==fail then return false else return result
 
     toString: -> "Maybe(#{@parser})"
 
@@ -345,15 +349,15 @@ exports.List = class List extends Parser
     parse: (lx) ->
         results = [ ]
         loop
-            p = @primary.parse(lx)
+            p = @primary.call(lx)
             if p==fail then break
             results.push p
-            if @separator? and @separator.parse(lx)==fail then break
+            if @separator? and @separator.call(lx)==fail then break
             log "#{@} again\n"
         log "#{@} done, #{results.length} elements\n" if results.length>0
 
         return fail if not @canBeEmpty and results.length==0
-        return @build results
+        return results
 
     toString: -> "List(#{@primary})"
 
@@ -370,7 +374,7 @@ exports.Wrap = class Wrap extends Parser
         @keys = @parser.keys
         super
 
-    parse: (lx) -> log "lx in wrap=#{lx}\n"; @build @parser.parse lx
+    parse: (lx) -> log "lx in wrap=#{lx}\n"; return @parser.call lx
 
     setParser: (parser) ->
         @parser = lift parser
@@ -398,12 +402,12 @@ exports.If = class If extends Parser
         super
 
     parse: (lx) ->
-        if @trigger.parse(lx) != fail
+        if @trigger.call(lx) != fail
             bookmark = lx.save()
-            result = @parser.parse lx
+            result = @parser.call lx
             if result == fail then lx.restore bookmark; return fail
-            else return @build result
-        else @build @whenNotTriggered
+            else return result
+        else return @whenNotTriggered
 
     toString: -> "If(#{@trigger},  #{@parser}, #{@whenNotTriggered})"
 
@@ -480,19 +484,19 @@ exports.Expr = class Expr extends Parser
             if e2 != fail then e=e2; again=true; log "infix success\n"
         @error "expr fucked up" if e==fail
         log "parsing done, e=#{e}\n"
-        return @build e
+        return e
 
     parsePrefix: (lx, prec) ->
         log "prefix\n"
         p  = @getParser @prefix, lx.peek()
-        op = p.parser.parse lx if p?
+        op = p.parser.call lx if p?
         log "op:#{op}\n"
         if p and op != fail
-            e = @parse lx, p.prec
+            e = @call lx, p.prec
             return @partialBuild p, op, e
         else
             log "primary, then.\n"
-            return @primary.parse lx
+            return @primary.call lx
 
     parseInfix:  (lx, e, prec) ->
         log "infix\n"
@@ -502,19 +506,19 @@ exports.Expr = class Expr extends Parser
         if p.prec > prec and p.assoc == 'flat'
             operands = [e]
             loop
-                op = p.parser.parse lx
+                op = p.parser.call lx
                 break if op==fail
                 # TODO: undo & return fail on operand parsing failure
-                operands.push @parse lx, p.prec
+                operands.push @call lx, p.prec
                 break unless p == @getParser @infix, lx.peek()
             return @partialBuild p, operands
 
         else if p.prec > prec or p.prec == prec and p.assoc == 'right'
             log "parsing operator #{lx.peek().v} of precedence #{p.prec} because current precedence is #{prec}\n"
-            op = p.parser.parse lx
+            op = p.parser.call lx
             return fail if op==fail
             log "about to parse e2, next is #{lx.peek()}\n"
-            e2 = @parse lx, p.prec
+            e2 = @call lx, p.prec
             # TODO: undo & return fail on operand parsing failure
             log "e2=#{e2}\n"
             return @partialBuild p, e, op, e2
@@ -529,7 +533,7 @@ exports.Expr = class Expr extends Parser
         log "suffix\n"
         p = @getParser @suffix, lx.peek()
         return fail unless p?
-        op = p.parser.parse lx
+        op = p.parser.call lx
         return fail if op==fail
         return @partialBuild p, e, op
 
@@ -553,12 +557,12 @@ exports.EpsilonParser = class EpsilonParser extends Parser
 
 class Space extends EpsilonParser
     toString: -> "Space"
-    parse: (lx) -> return (if lx.peek().s then @build true else fail)
+    parse: (lx) -> return (if lx.peek().s then true else fail)
 exports.space = new Space()
 
 class NoSpace extends EpsilonParser
     toString: -> "NoSpace"
-    parse: (lx) -> return (if lx.peek().s then fail else @build true)
+    parse: (lx) -> return (if lx.peek().s then fail else true)
 exports.noSpace = new NoSpace()
 
 class Nothing extends EpsilonParser
