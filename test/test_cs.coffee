@@ -76,7 +76,7 @@ src.accessor = """
 """
 
 src.array = """
-    x( [2])
+    x([2])
 """
 
 # multiple values -> index forbidden

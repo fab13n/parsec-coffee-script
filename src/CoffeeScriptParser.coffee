@@ -44,6 +44,13 @@ cs.toIndentedString = (x) ->
 
 ################################################################################
 
+
+# Suppress the indent / dedent tokens from the token stream,
+# by encapsulating the lexer into a filtering one.
+cs.skipIndentation = (parser) -> gg.lift (lx) ->
+    skipLexer = f(lx)
+    return parser (skipLexer)
+
 # reserved keywords
 cs.keywords = new lex.Keywords(
   "if", "else", "true", "false", "new", "return", "try", "catch",
@@ -263,7 +270,7 @@ cs.listWithIndent = (prefix, primary, suffix) ->
         skipAcceptableDedents
     ).setBuilder 2
 
-cs.array = cs.listWithIndent([gg.space, "["], cs.exprOrSplat, [gg.maybe(","), "]"])
+cs.array = cs.listWithIndent("[", cs.exprOrSplat, [gg.maybe(","), "]"])
 
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
@@ -318,7 +325,7 @@ prefix 'new',    100
 prefix 'throw',  100
 prefix '->',     10, (_, body) -> tree "Function", [], body
 
-suffix cs.arguments, 100, (f, args) -> tree "Call", f, args, false
+suffix cs.arguments, 90, (f, args) -> tree "Call", f, args, false
 suffix "?",          100, (x, _) -> tree "Existence", x
 suffix cs.whileLine, 100, (x, w) -> tree "While", w.cond, w.invert, w.guard, [x]
 suffix cs.dotAccessor, 100, (x, i) -> tree "Accessor", x, tree "Value", i
