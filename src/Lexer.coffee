@@ -66,6 +66,23 @@ exports.Keywords = class Keywords
     startingWithSymbol: (k) -> @set[k] or []
 
 
+#-------------------------------------------------------------------------------
+# Lexer: turn a source string into a tokens list with method @tokenize().
+# The list is intended to be consumed and fed to parsers by Stream.
+#
+# It would be possible, although overkill given the typical source size
+# vs. available RAM, to produce the tokens lazily, by having the Stream
+# consumming directly @step() instead of @tokenize().
+#
+# TODO: the link between Lexer and Stream won't stay strictly one-way:
+# a macro, triggered by a parser, can modify the list of keywords, and
+# force a re-tokenization of unconsumed tokens. This could make lazy
+# tokenization more interesting, as it would reduce complexity from
+# o(n^2) to o(n).
+#
+# TODO: not sure whether char offset -> line conversion should belong to
+# Lexer, to Stream, or to a class of its own.
+#-------------------------------------------------------------------------------
 exports.Lexer = class Lexer
 
     # field src:                 source code being tokenized
@@ -76,8 +93,6 @@ exports.Lexer = class Lexer
     # field indentChar:          char used to indent, ' ' or '\t'
     # field forbiddenIndentChar: char forbidden for indentation, '\t' or ' '
     # field lineCache:           line number -> offset correspondance table
-    # field readIndex:           current token reading pointer
-    # field streamIndentation:   indentation level of last consummed token
 
     #---------------------------------------------------------------------------
     # Get ready to tokenize string `src', with keywords set `keywords'.
@@ -117,8 +132,6 @@ exports.Lexer = class Lexer
     #---------------------------------------------------------------------------
     pWhere: (msg) ->
         log "#{msg or ''} [#{@i} '#{@src[@i..@i+5].replace( /\n/g,'\\n')}...']\n"
-
-
     #---------------------------------------------------------------------------
     # Perform one step of tokenization..
     # One step of processing can produce more than one token:
@@ -491,6 +504,15 @@ exports.Lexer = class Lexer
 #-#-----------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 exports.Stream = class Stream
+
+    #---------------------------------------------------------------------------
+    # Stream public interface:
+    # @peek(n): return the n-th token without consuming it. n?=1.
+    # @next(n): consume and return the n-th token. n?=1.
+    # @indentation(n): return indentation level of the n-th token. n?=1.
+    # @save(): return a state, allowing to restore the current stream's state.
+    # @restore(state): revert any changes made since @save returned state.
+    #---------------------------------------------------------------------------
 
     # field index: index of last consummed token in @tokens
     # field tokens: all tokens produced by the lexer
