@@ -105,8 +105,16 @@ src.indented_array = """
     ]
 """
 
+if process.argv.length>0
+    listed_tests = { }
+    for name in process.argv
+        if src[name] then listed_tests[name] = true
+        else throw new Error "Unknown test case #{name}"
+
+
 # Pass all tests in sequence
 for name, x of src
+    continue if listed_tests and not listed_tests[name]
     print "\n***** Test #{name} *****\n"
     t = cs.parse x
     fail = t==gg.fail
