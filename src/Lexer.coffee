@@ -483,13 +483,25 @@ exports.Lexer = class Lexer
 
 
 
+#-------------------------------------------------------------------------------
+# #-----------------------------------------------------------------------------
+# #
+# # Stream reading API.
+# #
+#-#-----------------------------------------------------------------------------
+#-------------------------------------------------------------------------------
+exports.Stream = class Stream
+
+    # field index: index of last consummed token in @tokens
+    # field tokens: all tokens produced by the lexer
+    # field currentIndentation: indentation of the last consummed token
+
     #---------------------------------------------------------------------------
-    # #-------------------------------------------------------------------------
-    # #
-    # # Stream reading API.
-    # #
-    #-#-------------------------------------------------------------------------
     #---------------------------------------------------------------------------
+    constructor: (lexer) ->
+        @tokens = lexer.tokenize()
+        @index  = -1
+        currentIndentation = 0
 
     #---------------------------------------------------------------------------
     # Return the n-th next token, without consumming it.
@@ -498,11 +510,9 @@ exports.Lexer = class Lexer
     # active keywords while parsing/tokenizing.
     #---------------------------------------------------------------------------
     peek: (n) ->
-        n          ?= 1
-        @tokens    ?= @tokenize()
-        @readIndex ?= -1
+        n ?= 1
         # log  "? peek #{@tokens[@readIndex+n]}\n"
-        return @tokens[@readIndex+n]
+        return @tokens[@index+n]
 
     #---------------------------------------------------------------------------
     # Return the n-th next token, remove all tokens up to it from token stream.
@@ -510,20 +520,26 @@ exports.Lexer = class Lexer
     next: (n) ->
         n ?= 1
         result = @peek(n)
-        log "> consumed #{tok}\n" for tok in @tokens[@readIndex+1..@readIndex+n]
-        @readIndex += n
-        if (result_t=result.t) == 'indent' or result_t == 'dedent'
-            @streamIndentation = result.v
+        for tok in @tokens[@index+1..@index+n]
+                log "> consumed #{tok}\n"
+                if (tok_t=tok.t) == 'indent' or tok_t == 'dedent'
+                    @currentIndentation = tok.v
+        @index += n
         return result
 
     #---------------------------------------------------------------------------
-    # Return the indentation level of the current token.
+    # Return the indentation level of the n-th next token.
     #---------------------------------------------------------------------------
-    getCurrentIndentation: -> return @streamIndentation ?= 0
+    indentation: (n) ->
+        n ?= 1
+        for tok in @tokens[@index+1..@index+n]
+            if (tok_t=tok.t) == 'indent' or tok_t == 'dedent'
+                result = tok.v
+        return result
 
     #---------------------------------------------------------------------------
     # Save and restore reading positions.
     # Allow a parser to undo some readings in case of late failure.
     #---------------------------------------------------------------------------
-    save:        -> @readIndex
-    restore: (i) -> @readIndex = i
+    save:            -> [@index, @currentIndentation]
+    restore: (state) -> [@index, @currentIndentation] = state

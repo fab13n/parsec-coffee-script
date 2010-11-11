@@ -255,7 +255,7 @@ cs.listWithIndent = (prefix, primary, suffix) ->
 
     class StoreInitialIndentation extends gg.EpsilonParser
         parse: (lx) ->
-            initialIndentation = lx.getCurrentIndentation()
+            initialIndentation = lx.indentation()
 
     skipAcceptableDedents = (lx) ->
         lx.next() while (tok=lx.peek()).t=='dedent' and tok.v>=initialIndentation
@@ -342,5 +342,7 @@ cs.parse = (parser, src) ->
         parser = cs[parser]
     else unless parser instanceof gg.Parser
         throw new Error "bad args"
-    parser.call(new lex.Lexer(src, cs.keywords))
+    lexer = new lex.Lexer(src, cs.keywords)
+    stream = new lex.Stream lexer
+    parser.call stream
 
