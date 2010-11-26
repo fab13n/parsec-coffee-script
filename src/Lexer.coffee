@@ -523,7 +523,7 @@ exports.Stream = class Stream
     constructor: (lexer) ->
         @tokens = lexer.tokenize()
         @index  = -1
-        currentIndentation = 0
+        @currentIndentation = 0
 
     #---------------------------------------------------------------------------
     # Return the n-th next token, without consumming it.
@@ -542,7 +542,7 @@ exports.Stream = class Stream
     next: (n) ->
         n ?= 1
         result = @peek(n)
-        for tok in @tokens[@index+1..@index+n]
+        for tok in @tokens[@index+1 .. @index+n]
                 log "> consumed #{tok}\n"
                 if (tok_t=tok.t) == 'indent' or tok_t == 'dedent'
                     @currentIndentation = tok.v
@@ -554,7 +554,8 @@ exports.Stream = class Stream
     #---------------------------------------------------------------------------
     indentation: (n) ->
         n ?= 1
-        for tok in @tokens[@index+1..@index+n]
+        result = @currentIndentation
+        for tok in @tokens[@index+1 .. @index+n]
             if (tok_t=tok.t) == 'indent' or tok_t == 'dedent'
                 result = tok.v
         return result

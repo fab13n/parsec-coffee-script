@@ -1,55 +1,7 @@
 gg  = require './GrammarGenerator'
 lex = require './Lexer'
-
+{ tree, toIndentedString } = require './Tree'
 cs = exports
-
-################################################################################
-# tree: temporary hack to generate AST-like stuff without actually linking
-# with the CS backend compiler.
-################################################################################
-
-tree = (x...) -> new Tree x...
-
-class Tree
-    constructor: (@tag, @children...) ->
-    toString: -> "`#{@tag}(#{@children.join ', '})"
-
-# Print a tree with a readable indentation.
-cs.toIndentedString = (x) ->
-    rec = (x, b, i) ->
-        if x instanceof Tree
-            b.push x.tag
-            nChildren = x.children.length
-            if nChildren==0
-                return b
-            else
-                b.push "( "
-                for child, n in x.children
-                    rec(child, b, i+"  ")
-                    b.push (if n<nChildren-1 then ",\n  "+i else " )")
-        else if x instanceof Array
-            b.push "[ "
-            nChildren = x.length
-            for child, n in x
-                rec(child, b, i+"  ")
-                b.push ",\n  "+i if n<nChildren-1
-            b.push " ]"
-        else if x?
-            b.push x.toString()
-        else
-            b.push "undefined"
-    b = [ ]
-    rec(x, b, '')
-    return b.join("")
-
-################################################################################
-
-
-# Suppress the indent / dedent tokens from the token stream,
-# by encapsulating the lexer into a filtering one.
-cs.skipIndentation = (parser) -> gg.lift (lx) ->
-    skipLexer = f(lx)
-    return parser (skipLexer)
 
 # reserved keywords
 cs.keywords = new lex.Keywords(
@@ -242,6 +194,7 @@ cs.dotAccessor = gg.sequence(
     ".", gg.choice(gg.id, gg.anyKeyword)
 ).setBuilder 1
 
+# DEPRECATED
 # Functor to support comma-separated lists with arbitary indentations.
 # The separator could easily be made paametric, but it doesn't seem
 # necessary for coffeescript.
@@ -270,7 +223,30 @@ cs.listWithIndent = (prefix, primary, suffix) ->
         skipAcceptableDedents
     ).setBuilder 2
 
-cs.array = cs.listWithIndent("[", cs.exprOrSplat, [gg.maybe(","), "]"])
+# Support for list of elements which accept arbitrary indentations between
+# them. Used for array elements and function arguments
+cs.multiLine = (args) ->
+    { primary, prefix, suffix, separator } = args
+    seq = gg.sequence(
+        prefix ? gg.nothing,
+        gg.list(primary, [separator ? gg.nothing, optionalNewlines]),
+        suffix ? gg.nothing,
+    ).setBuilder 1
+
+    return gg.lift (lx) ->
+        initialIndent = lx.indentation(0)
+        result        = seq.call lx
+        while true # Skip closing dedents
+            tok = lx.peek()
+            if tok.t=='dedent' and tok.v>initialIndent then lx.next() else break
+        return result
+
+optionalNewlines = # helper for cs.multiLine
+    gg.list(gg.choice(gg.indent, gg.dedent, gg.newline), null, 'canbeempty')
+
+cs.array = cs.multiLine {
+    prefix: '[', primary:cs.exprOrSplat, separator: gg.maybe(','), suffix: ']' }
+.setBuilder (x) -> tree 'Array', x
 
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
@@ -300,36 +276,73 @@ cs.primary = gg.choice(
 
 cs.expr.setPrimary cs.primary
 
-# TODO: set proper precedences
-
 # helpers for operator declarations
+
 prefix = (op, prec, builder) ->
-    builder ?= (_, a) -> tree op, a
+    if not builder?
+        builder = op
+    if typeof builder is 'string'
+        tag = builder; builder = (_, a) -> tree tag, a
     cs.expr.addPrefix {parser:op, prec, builder}
-infix  = (op, prec, assoc) ->
-    assoc ?= 'left'
-    cs.expr.addInfix {parser:op, prec, assoc, builder: (a,_,b) -> tree op, a, b}
-suffix = (parser, prec, builder) ->
-    cs.expr.addSuffix {parser, prec, builder}
 
-# operators on expressions
-infix '+', 50
-infix '-', 50
-infix '*', 60
-infix '/', 60
-infix '=', 00
-infix 'if', 00, 'right'
-infix 'unless', 00, 'right'
+infix  = (op, prec, assoc, builder) ->
+    if not builder?
+        builder = op
+    if typeof builder is 'string'
+        tag = builder; builder = (a, _, b) -> tree tag, a, b
+    cs.expr.addInfix { parser:op, prec, assoc: assoc ? 'left', builder }
 
-prefix 'new',    100
-prefix 'throw',  100
-prefix '->',     10, (_, body) -> tree "Function", [], body
+suffix = (op, prec, builder) ->
+    if not builder? and typeof op is 'string'
+        builder = op
+    if typeof builder is 'string'
+        tag = builder; builder = (a, _) -> tree tag, a
+    cs.expr.addSuffix {parser:op, prec, builder}
 
-suffix cs.arguments, 90, (f, args) -> tree "Call", f, args, false
-suffix "?",          100, (x, _) -> tree "Existence", x
-suffix cs.whileLine, 100, (x, w) -> tree "While", w.cond, w.invert, w.guard, [x]
-suffix cs.dotAccessor, 100, (x, i) -> tree "Accessor", x, tree "Value", i
-suffix cs.bracketAccessor, 100, (x, i) ->
+# Existential
+suffix [gg.noSpace, '?'], 190, 'Existence'
+
+# Default '?' infix op
+infix [gg.space, '?'], 80, 'left', 'Default'
+
+infix  'is',   110, 'left', '=='
+infix  'isnt', 110, 'left', '!='
+infix  'and',  110, 'left', '&&'
+infix  'or',   110, 'left', '||'
+prefix 'not',  180, '!'
+
+suffix '++', 180, '++suffix'
+suffix '--', 180, '--suffix'
+
+regularOperators = [
+    # 190: suffix '?'
+    [ prefix, [180], '+', '-', '!', '!!', '~', '++', '--' ],
+    [ infix,  [170], '*', '/', '%' ],
+    [ infix,  [160], '+', '-' ],
+    [ infix,  [150], '<<', '>>', '>>>' ],
+    [ infix,  [140], '&', '|', '^' ],
+    [ infix,  [130], '<=', '<', '>', '>=' ], # TODO convert into chainable operators
+    [ prefix, [120], 'delete', 'instanceof', 'typeof', 'new', 'throw' ],
+    [ infix,  [110], '==', '!=' ], # plus aliases 'is', 'isnt' TODO and chaining
+    [ infix,  [100], '&&' ], # plus alias 'and'
+    [ infix,   [90], '||' ], # plus alias 'or'
+    # 80: infix '?', surrounded by spaces
+    [ infix, [70, 'right'], '=', '-=', '+=', '/=', '*=', '%=', '||=', '&&=', '?='],
+]
+
+parseRegularOperatorsLists = ->
+    for [f, rest, firsts...] in regularOperators
+        for first in firsts
+            f(first, rest...)
+
+parseRegularOperatorsLists()
+
+prefix '->', 10, (_, body) -> tree "Function", [], body
+
+suffix cs.arguments,       30, (f, args) -> tree "Call", f, args, false
+suffix cs.whileLine,       20, (x, w) -> tree "While", w.cond, w.invert, w.guard, [x]
+suffix cs.dotAccessor,     90, (x, i) -> tree "Accessor", x, tree "Value", i
+suffix cs.bracketAccessor, 90, (x, i) ->
     [ a, op, b ] = i
     return tree "Accessor", x, a unless op
     return tree "RangeAccessor", x, op, a, b
@@ -344,5 +357,6 @@ cs.parse = (parser, src) ->
         throw new Error "bad args"
     lexer = new lex.Lexer(src, cs.keywords)
     stream = new lex.Stream lexer
+    print("Tokens: #{stream.tokens.join('\n')}\n")
     parser.call stream
 

@@ -412,6 +412,18 @@ exports.If = class If extends Parser
     toString: -> "If(#{@trigger},  #{@parser}, #{@whenNotTriggered})"
 
 #-------------------------------------------------------------------------------
+# Token predicate.
+#
+# Take a predicate on tokens as a constructor parameter, suceed by consuming
+# the next token iff it satisfied that predicate.
+#-------------------------------------------------------------------------------
+exports.filter = (x...) -> new Filter x...
+exports.Filter = class Filter extends Parser
+    constructor: (@predicate) ->
+    parse: (lx) ->
+        if @predicate(lx.peek()) then return lx.next() else return fail
+
+#-------------------------------------------------------------------------------
 # Expression parser generator.
 #
 # An expression parser allows to combine primary elements with prefix,

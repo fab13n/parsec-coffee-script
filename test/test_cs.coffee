@@ -1,6 +1,6 @@
-cs = require "./../src/CoffeeScriptParser"
-gg = require "./../src/GrammarGenerator"
-
+cs = require "../src/CoffeeScriptParser"
+gg = require "../src/GrammarGenerator"
+{ tree, toIndentedString } = require '../src/Tree'
 
 src = { }
 
@@ -103,6 +103,21 @@ src.indented_array = """
     [p, q,]
     [r,
     ]
+    [ f x
+      a
+       b
+      c, d]
+"""
+
+src.operators = """
+    a + b * c
+    d ? e ? f
+    d? ? e? ? f?
+    a++
+    ++b
+    a++ + ++b
+    ++--x--++
+    -1 - - --2
 """
 
 if process.argv.length>0
@@ -123,7 +138,7 @@ for name, x of src
         else print "\nCompilation of #{name} failed, as expected\n"
     else
         if fail then throw new Error ("Failure on src.#{name}")
-        else print "\n#{name} input:\n#{x}\n\n#{name} result:\n#{cs.toIndentedString t}\n"
+        else print "\n#{name} input:\n#{x}\n\n#{name} result:\n#{toIndentedString t}\n"
 
 print "\nTest passed\n"
 
