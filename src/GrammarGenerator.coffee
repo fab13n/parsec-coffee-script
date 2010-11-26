@@ -1,8 +1,8 @@
 # Grammar generator
 #
 
-log = ->
-#log = print
+enableLogs = false
+if enableLogs then log = print else log = ->
 
 this.exports = this unless process?
 
@@ -70,8 +70,8 @@ exports.Parser = class Parser
     # Run the parser on the token stream `lx', consumming tokens out of it
     # if applicable. Return the object `fail' and leaves the token stream
     # unchanged if parsing fails.
-    call: (lx) ->
-        x = @parse(lx)
+    call: (args...) ->
+        x = @parse(args...)
         return fail if x==fail
         if @builder? then x = @builder x
         (x = t(x)) for t in @transformers
@@ -490,7 +490,7 @@ exports.Expr = class Expr extends Parser
         log "prefix\n"
         p  = @getParser @prefix, lx.peek()
         op = p.parser.call lx if p?
-        log "op:#{op}\n"
+        log "prefix op candidate: #{op}\n"
         if p and op != fail
             e = @call lx, p.prec
             return @partialBuild p, op, e
@@ -555,16 +555,19 @@ exports.Expr = class Expr extends Parser
 # Common ancestor of special parsers which don't consume any token.
 exports.EpsilonParser = class EpsilonParser extends Parser
 
+# Only succeed if the next token is preceded by some spacing.
 class Space extends EpsilonParser
     toString: -> "Space"
     parse: (lx) -> return (if lx.peek().s then true else fail)
 exports.space = new Space()
 
+# Only succeed if the next token is NOT preceded by some spacing.
 class NoSpace extends EpsilonParser
     toString: -> "NoSpace"
     parse: (lx) -> return (if lx.peek().s then fail else true)
 exports.noSpace = new NoSpace()
 
+# Always succeed and return null.
 class Nothing extends EpsilonParser
     toString: -> "Nothing"
     parse: -> null
