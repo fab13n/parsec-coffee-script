@@ -1,8 +1,10 @@
 # Grammar generator
 #
 
-enableLogs = false
+enableLogs = true
 if enableLogs then log = print else log = ->
+
+log2=print
 
 this.exports = this unless process?
 
@@ -50,13 +52,14 @@ lift = exports.lift = (x) ->
 # builder: generate the result from the bits. What constitutes the "bits"
 # depends on the parser class.
 #
-# listeners: set of parsers to be notified when this parser is updated.
+# listeners: list of parsers to be notified when this parser is updated.
 # This is intended to propagate changes in key sets.
 #
 # backtrack: when false, failing to parse causes an error instead of returning
 # 'fail'
 #
 #-------------------------------------------------------------------------------
+callNest = 0
 exports.Parser = class Parser
     typename: "Parser"
 
@@ -64,19 +67,34 @@ exports.Parser = class Parser
         @builder      ?= (x) -> x
         @transformers ?= [ ]
         @keys         ?= false
-        @listeners    ?= { }
+        @listeners    ?= [ ]
         @backtrack    ?= true
 
     # Run the parser on the token stream `lx', consumming tokens out of it
     # if applicable. Return the object `fail' and leaves the token stream
     # unchanged if parsing fails.
     call: (args...) ->
+
+        callNest++
+        log2("|  ") for _ in [0..callNest]
+        log2("? #{@toShortString(80)}\n")
+
         x = @parse(args...)
-        return fail if x==fail
-        if @builder? then x = @builder x
-        (x = t(x)) for t in @transformers
-        log "/ built #{x}\n\\ by #{@toString()[0...30]}...\n"
-        return x
+
+        if x==fail
+            log2("|  ") for _ in [0..callNest]
+            log2("- #{@toShortString()} failed.\n")
+            callNest--
+            return fail
+        else
+            if @builder? then x = @builder x
+            (x = t(x)) for t in @transformers
+
+            log2("|  ") for _ in [0..callNest]
+            log2("+ #{@toShortString()} succeeded, returned '#{x}'.\n")
+            callNest--
+
+            return x
 
     # Internal parsing method: return either a result or `fail', by consumming
     # tokens from lx.
@@ -98,16 +116,43 @@ exports.Parser = class Parser
         else k=builder; @builder = ->k
         return @
 
+    # DEPRECATED?
     setBacktrack: (x) -> @backtrack = (if x? then x else true); return @
 
     # When a change is made to this parser, notify all parsers who
     # registered for update notifications.
-    notify: -> listener.notify() for listener of @listeners
+    # Notification procedure:
+    # - a parent parser P's keys depend on its child parser C to determine its
+    #   keys, and a change in C's keys might cause a change in P's keys.
+    # - P informs C that it needs to be notified about keys changes, by
+    #   calling C.addListener(P).
+    # - C is subjected to an operation which changes its keys. It recomputes
+    #   its own keys, and notifies it listeners, including P.
+    # - P receives the notification, updates its keys in its implementation
+    #   of @notify; if its own keys have changed, it propagates the notification
+    #   through a final supernotify().
+    notify: ->
+        @error "Is anybody ever notified?!"
+        listener.notify() for listener in @listeners
+        # print "notified #{@toShortString()}\n"
 
     # Register another parser to be notified when this one is updated.
-    addListener: (x) -> @listeners[x] = true
+    addListener: (x) ->
+        (return if x==y) for y in @listeners
+        @listeners.push x
+        return @
 
     toString: -> "#{@typename} #{@name or '<?>'}"
+
+    # Limit the maximum size of the parser's @toString result, introducing
+    # an elipsis "..." if necessary. The 'max' parameter must be at least 3.
+    toShortString: (max) ->
+        max ?= 32
+        longString = @toString()
+        if longString.length>max
+            return longString[0...max-3] + "..."
+        else return longString
+
     error: (msg) -> throw new Error @toString()+": ParsingError: "+msg
 
 
@@ -199,13 +244,13 @@ exports.Sequence = class Sequence extends Parser
         result   = []
         bookmark = lx.save()
         for child, i in @children
-            log "Sequence child ##{i}, token=#{lx.peek()}, parser=#{child.toString()[0..32]}...\n"
+            log "Sequence child ##{i}, token=#{lx.peek()}, parser=#{child.toShortString()}...\n"
             x = child.call(lx)
             if x == fail
                 if @backtrack or i==0
                     log ">>>> BACKTRACKING FROM #{lx.peek()} TO "
                     lx.restore bookmark
-                    log "#{lx.peek()} in #{@toString()[0...30]} <<<<<\n"
+                    log "#{lx.peek()} in #{@toShortString()} <<<<<\n"
                     return fail
                 else
                     @error "failed on element ##{i}"
@@ -227,7 +272,13 @@ exports.Sequence = class Sequence extends Parser
 exports.choice = (x...) -> new Choice x...
 exports.Choice = class Choice extends Parser
 
-    # field indexed: parsers to choose from, indexed by key
+    # field indexed:  parsers to choose from, indexed by key.
+    #                 key -> list of children, sorted by decreasing precedence.
+    # field indexedP: children precedences, indexed by key then order.
+    #                 key -> list of precedences, the n-th entry is the precedence
+    #                 of the n-th parser in the corresponding parser list.
+    # field unindexed:  key-less children, sorted by decreasing order.
+    # field unindexedP: precedences of key-less children.
     # field default: the optional keyless parser
 
     constructor: (children...) ->
@@ -261,12 +312,12 @@ exports.Choice = class Choice extends Parser
                 precs   = (@indexedP[key] ?= [ ])
                 insertWithPrec parsers, precs, child, prec
                 @keys[key] = true if @keys
-        else
+        else # if one child is key-less, the Choice parser is key-less.
              insertWithPrec @unindexed, @unindexedP, child, prec
              @keys = false
         child.addListener @
 
-    # Remake the whole indexation.
+    # Recompute the whole key indexing.
     # @add preserves indexation, so this is intended to cope with
     # modifications notified by children parsers.
     reindex: ->
@@ -279,7 +330,7 @@ exports.Choice = class Choice extends Parser
                 allPrecs.push precs[i]
         @indexed  = { }; @unindexed  = [ ]; @keys = { }
         @indexedP = { }; @unindexedP = [ ]
-        addOneChild child[i], prec[i] for i in [0...allchildren.length]
+        addOneChild child[i], prec[i] for i in [0...allChildren.length]
 
     notify: -> @reindex; super
 
@@ -299,22 +350,6 @@ exports.Choice = class Choice extends Parser
         i = x for x of @indexed
         d = if @default? then " || default=#{@default}" else ""
         "Choice(#{i.join ' | '}#{d})"
-
-#-------------------------------------------------------------------------------
-# TODO: need to create proper messages
-#-------------------------------------------------------------------------------
-exports.must = (x...) -> new Must x...
-exports.Must = class Must extends Parser
-    typename: 'Must'
-
-    constructor: (@parser) ->
-        super
-        @keys = @parser.keys
-        @parser.addListener @
-
-    parse: (lx) ->
-        result = @parser.call(lx)
-        if result==fail then @error() else return result
 
 #-------------------------------------------------------------------------------
 # TODO: need to create proper messages
@@ -441,6 +476,9 @@ exports.Filter = class Filter extends Parser
 # * 'flat':  the operator is n-ary rather than binary, A+B+C is interpreted
 #            as +(A, B, C).
 #
+# @infix, @prefix and @suffix are tables which associate a key to a record with
+ # fields 'parser', 'prec', 'builder' (and 'assoc' for @infix)
+#
 # TODO: transformers should be applied on all intermediate sub-expressions.
 #-------------------------------------------------------------------------------
 exports.expr = (x...) -> new Expr x...
@@ -453,9 +491,21 @@ exports.Expr = class Expr extends Parser
         @prefix  = { }
         @infix   = { }
         @suffix  = { }
+        @keys    = { }
 
     # TODO: support key update if expression parsers eventually support keys.
-    setPrimary: (primary) -> @primary = lift primary; return @
+    setPrimary: (primary) ->
+        @primary = lift primary
+        @primary.addListener @
+        return @
+
+    notify: ->
+        @keys = { }
+        for k of @primary.keys
+            @keys[k] = true
+        for k of @prefix
+            @keys[k] = true
+        super
 
     addPrefix: (x) -> @add @prefix, x
     addInfix:  (x) -> @add @infix,  x
@@ -467,19 +517,21 @@ exports.Expr = class Expr extends Parser
     # For infix operators it should also have assoc.
     # prec defaults to 50, assoc defaults to 'left'.
     add: (set, x)->
-        set = @[set] if typeof set == 'string'
+        set = @[set] if typeof set is 'string'
         x.parser = lift x.parser
         x.prec ?= 50
         keys = x.parser.keys
         #log "keys to add: #{(k for k of keys).join ', '}\n"
         unless keys
             @error "duplicate default" if set.default
-            set.default = x
+            set.default = x # Works because string 'default' can't be a key
             #log "added default\n"
         else for key of keys
             @error "duplicate key #{key}" if set[key]
             set[key] = x
-            log "added rule to key #{key}\n"
+            log "Expr: added rule '#{x.parser.toShortString()}...' with key '#{key}'\n"
+            @keys[key] = true if set is @prefix
+        x.parser.addListener @ if set is @prefix
         return @
 
     parse: (lx, prec) ->
@@ -579,8 +631,11 @@ class NoSpace extends EpsilonParser
     parse: (lx) -> return (if lx.peek().s then fail else true)
 exports.noSpace = new NoSpace()
 
-# Always succeed and return null.
-class Nothing extends EpsilonParser
-    toString: -> "Nothing"
+# Neutral element: always succeed without consuming any token.
+class One extends EpsilonParser
+    toString: -> "One"
     parse: -> null
-exports.nothing = new Nothing()
+exports.one = new One()
+
+# Absorbing element: always fail
+exports.zero = lift -> fail

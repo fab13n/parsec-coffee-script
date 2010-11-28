@@ -162,7 +162,7 @@ cs.parentheses = gg.sequence(
     gg.choice(
         ['->', cs.lineOrBlock],
         ['=>', cs.lineOrBlock],
-        gg.nothing
+        gg.one
     )
 ).setBuilder (x) ->
     [_, content, _, glyphAndCode] = x
@@ -177,13 +177,13 @@ cs.parentheses = gg.sequence(
 # accessor suffix.
 # TODO: handle slices
 cs.bracketAccessor = gg.sequence(
-    gg.noSpace, "[", cs.expr,
+    gg.noSpace, '[', cs.expr,
     gg.choice(
-        gg.sequence("...", cs.expr),
-        gg.sequence("..", cs.expr),
-        gg.nothing
+        gg.sequence('...', cs.expr),
+        gg.sequence('..', cs.expr),
+        gg.one
     ),
-    "]"
+    ']'
 ).setBuilder (x) ->
     [_, _, a, rest, _] = x
     if rest then [op, b] = rest; return [ a, op, b ]
@@ -194,49 +194,21 @@ cs.dotAccessor = gg.sequence(
     ".", gg.choice(gg.id, gg.anyKeyword)
 ).setBuilder 1
 
-# DEPRECATED
-# Functor to support comma-separated lists with arbitary indentations.
-# The separator could easily be made paametric, but it doesn't seem
-# necessary for coffeescript.
-#
-# newlines and indents are accepted after a comma
-# warning: indents cause dedents. they must be dealt with properly.
-# proposal: dedents to a level >= initial level are accepted
-cs.listWithIndent = (prefix, primary, suffix) ->
-
-    initialIndentation = false
-
-    class StoreInitialIndentation extends gg.EpsilonParser
-        parse: (lx) ->
-            initialIndentation = lx.indentation()
-
-    skipAcceptableDedents = (lx) ->
-        lx.next() while (tok=lx.peek()).t=='dedent' and tok.v>=initialIndentation
-
-    separator = gg.sequence(",", skipAcceptableDedents, gg.choice(gg.newline, gg.indent, gg.nothing))
-
-    return gg.sequence(
-        new StoreInitialIndentation,
-        prefix,
-        gg.list(primary, separator),
-        suffix,
-        skipAcceptableDedents
-    ).setBuilder 2
-
 # Support for list of elements which accept arbitrary indentations between
-# them. Used for array elements and function arguments
+# them. Used for array elements and function arguments.
 cs.multiLine = (args) ->
     { primary, prefix, suffix, separator } = args
     seq = gg.sequence(
-        prefix ? gg.nothing,
-        gg.list(primary, [separator ? gg.nothing, optionalNewlines]),
-        suffix ? gg.nothing,
-    ).setBuilder 1
+        prefix ? gg.one,
+        optionalNewlines,
+        gg.list(primary, [separator ? gg.one, optionalNewlines]),
+        suffix ? gg.one,
+    ).setBuilder 2
 
     return gg.lift (lx) ->
-        initialIndent = lx.indentation(0)
-        result        = seq.call lx
-        while true # Skip closing dedents
+        initialIndent = lx.indentation(0) # Remember indentation
+        result = seq.call lx              # Read content
+        while true                        # Skip closing dedents
             tok = lx.peek()
             if tok.t=='dedent' and tok.v>initialIndent then lx.next() else break
         return result
@@ -245,8 +217,18 @@ optionalNewlines = # helper for cs.multiLine
     gg.list(gg.choice(gg.indent, gg.dedent, gg.newline), null, 'canbeempty')
 
 cs.array = cs.multiLine {
-    prefix: '[', primary:cs.exprOrSplat, separator: gg.maybe(','), suffix: ']' }
+    prefix:    '['
+    primary:   cs.exprOrSplat
+    separator: gg.choice(',', ';', gg.one)
+    suffix:    ']' }
 .setBuilder (x) -> tree 'Array', x
+
+cs.object = cs.multiLine {
+    prefix:    '{'
+    primary:   gg.sequence(gg.id, ':', cs.expr).setBuilder (x) -> [x[0], x[2]]
+    separator: gg.choice(',', ';', gg.one)
+    suffix:    '}' }
+.setBuilder (x) -> tree 'Object', x
 
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
@@ -255,9 +237,9 @@ cs.primary = gg.choice(
     (gg.wrap gg.id)    .setBuilder (x) -> tree 'id', x
     #gg.regexp,
     #gg.string, not implemented
-    # gg.js,
+    #gg.js,
     cs.array,
-    # object,
+    cs.object,
     gg.choice("true", "yes", "on").setBuilder(-> tree 'Literal', 'true'),
     gg.choice("false", "no", "off").setBuilder(-> tree 'Literal', 'false'),
     gg.wrap("break").setBuilder(-> tree 'Literal', "break"),
@@ -357,6 +339,6 @@ cs.parse = (parser, src) ->
         throw new Error "bad args"
     lexer = new lex.Lexer(src, cs.keywords)
     stream = new lex.Stream lexer
-    print("Tokens: #{stream.tokens.join('\n')}\n")
+    print("\nTokens: \n#{stream.tokens.join('\n')}\n\n")
     parser.call stream
 
