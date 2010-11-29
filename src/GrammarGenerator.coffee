@@ -530,8 +530,12 @@ exports.Expr = class Expr extends Parser
             @error "duplicate key #{key}" if set[key]
             set[key] = x
             log "Expr: added rule '#{x.parser.toShortString()}...' with key '#{key}'\n"
-            @keys[key] = true if set is @prefix
-        x.parser.addListener @ if set is @prefix
+        if set is @prefix
+            print "XXXXX PREFIX ADDED, keys=#{keys}, @keys=#{@keys} XXXXX\n"
+            if keys and @keys
+                (@keys[key] = true) for key of keys
+            else @keys = false
+            x.parser.addListener @
         return @
 
     parse: (lx, prec) ->

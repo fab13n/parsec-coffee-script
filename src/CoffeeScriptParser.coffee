@@ -339,6 +339,6 @@ cs.parse = (parser, src) ->
         throw new Error "bad args"
     lexer = new lex.Lexer(src, cs.keywords)
     stream = new lex.Stream lexer
-    print("\nTokens: \n#{stream.tokens.join('\n')}\n\n")
+    # print("\nTokens: \n#{stream.tokens.join('\n')}\n\n")
     parser.call stream
 

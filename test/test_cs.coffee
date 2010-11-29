@@ -75,8 +75,9 @@ src.accessor = """
     x[1...10]
 """
 
-src.array = """
-    x([2])
+src.array_arg = """
+    f [1,2]
+    g([2])
 """
 
 # multiple values -> index forbidden
@@ -90,9 +91,9 @@ src.not_an_accessor = """
     x( [a,b,c])
 """
 
-src.indented_array = """
-    [a, b, c]
-    [d, e,
+src.array = """
+    a1=[a, b, c]
+    a2 = [d, e,
         f]
     [g,
     h,
@@ -107,6 +108,19 @@ src.indented_array = """
       a
        b
       c, d]
+"""
+
+src.object = """
+obj = { a:1; b:{c:1} }
+"""
+
+src.indented_object = """
+obj = {
+    a:1
+    b:2,
+      c:3
+    d:{e:4; f:5}
+}
 """
 
 src.operators = """
