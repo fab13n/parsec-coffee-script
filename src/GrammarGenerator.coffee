@@ -10,6 +10,8 @@ this.exports = this unless process?
 
 fail = exports.fail = ["fail"]
 
+pid=1
+
 #-------------------------------------------------------------------------------
 # Check that x is either a parser, or something that can be sensibly
 # converted into a parser.
@@ -69,6 +71,7 @@ exports.Parser = class Parser
         @keys         ?= false
         @listeners    ?= [ ]
         @backtrack    ?= true
+        @id           ?= pid++
 
     # Run the parser on the token stream `lx', consumming tokens out of it
     # if applicable. Return the object `fail' and leaves the token stream
@@ -89,11 +92,9 @@ exports.Parser = class Parser
         else
             if @builder? then x = @builder x
             (x = t(x)) for t in @transformers
-
             log2("|  ") for _ in [0..callNest]
             log2("+ #{@toShortString()} succeeded, returned '#{x}'.\n")
             callNest--
-
             return x
 
     # Internal parsing method: return either a result or `fail', by consumming
@@ -132,17 +133,30 @@ exports.Parser = class Parser
     #   of @notify; if its own keys have changed, it propagates the notification
     #   through a final supernotify().
     notify: ->
-        @error "Is anybody ever notified?!"
-        listener.notify() for listener in @listeners
-        # print "notified #{@toShortString()}\n"
+        #@error "Is anybody ever notified?!"
+        #listener.notify() for listener in @listeners
+        #print " /// notified #{@toString()},\n \\\\\\ it got keys #{if @keys then (k.replace /^keyword\-/, '!' for k of @keys) else 'none'}\n"
+        for listener in @listeners
+            strkeys = (x) ->if x.keys then (k.replace /^keyword\-/, '!' for k of x.keys) else 'none'
+            print ">>> #{@toShortString()} notifies #{listener}; notifier's keys: #{strkeys @}\n"
+            listener.notify()
+            print "<<< #{@toShortString()} has been notified, has keys #{strkeys listener}\n"
+        #print " /// notified #{@toString()},\n \\\\\\ it got keys #{if @keys then (k.replace /^keyword\-/, '!' for k of @keys) else 'none'}\n"
+
 
     # Register another parser to be notified when this one is updated.
-    addListener: (x) ->
-        (return if x==y) for y in @listeners
-        @listeners.push x
+    addListener: (p) ->
+        # This protection isn't sufficient, it won't
+        # detect cycles longer than 2.
+        @error "mutual dependency" if p.isListenedBy @
+        @listeners.push p unless @isListenedBy p
         return @
 
-    toString: -> "#{@typename} #{@name or '<?>'}"
+    isListenedBy: (p) ->
+        (return true if p==q) for q in @listeners
+        return false
+
+    toString: -> @name ? "#{@typename}"
 
     # Limit the maximum size of the parser's @toString result, introducing
     # an elipsis "..." if necessary. The 'max' parameter must be at least 3.
@@ -168,7 +182,6 @@ exports.LiftedFunction = class LiftedFunction extends Parser
     parse:       (lx) -> return @f(lx)
 
 
-
 #-------------------------------------------------------------------------------
 # Match a token of type t, return it on success.
 #-------------------------------------------------------------------------------
@@ -181,20 +194,19 @@ exports.Const = class Const extends Parser
     # t: type of token
     # valueKeyed: if true, the value is expected to be included in the key.
     constructor: (@t, valueKeyed, values...) ->
+        super
         if values.length>0
             @values = { }
             (@values[x]=true) for x in values
-            @name = @t + " " + values.join '/'
-        else @name = @t
 
         @keys = { }
         if valueKeyed?
-            @name = @t + '-' + values.join '-'
+            if @t=='keyword' then @name='!'+values.join '-'
+            else @name = @t + '-' + values.join '-'
             (@keys[@t+'-'+v] = true) for v in values
         else
             @name = @t
             @keys[@t] = true
-        super
 
     parse: (lx) ->
         tok = lx.peek()
@@ -216,11 +228,14 @@ exports.keyword    = keyword = (values...) -> new Const 'keyword', true, values.
 # Read any keyword.
 #-------------------------------------------------------------------------------
 exports.AnyKeyword = class AnyKeyword extends Parser
+    typename: "any-keyword"
+    constructor: -> super
     parse: (lx) ->
         tok = lx.peek()
         if tok.t == 'keyword' then return lx.next().v
         else return fail
-exports.anyKeyword = new AnyKeyword
+
+exports.anyKeyword = new AnyKeyword()
 
 #-------------------------------------------------------------------------------
 # Compose several parsers in a sequence.
@@ -231,14 +246,21 @@ exports.Sequence = class Sequence extends Parser
     # field children: list of sub-parsers composing the sequence
 
     constructor: (children...) ->
-        @children = lift child for child in children
-        i = 0
-        loop
-            firstChild = @children[i++]
-            break if firstChild and firstChild not instanceof EpsilonParser
-        @keys = firstChild?.keys
-        firstChild.addListener @
         super
+        @children = lift child for child in children
+        first = @firstNonEpsilonChild()
+        if first
+            print "FNEC #{@toShortString()} = #{first.toShortString()}\n"
+            @keys = first.keys
+            first.addListener @
+        else
+            print "NO FNEC in #{@toShortString()}\n"
+            @keys = false
+
+    firstNonEpsilonChild: ->
+        for c in @children
+            return c unless c instanceof EpsilonParser
+        return false
 
     parse: (lx) ->
         result   = []
@@ -258,9 +280,12 @@ exports.Sequence = class Sequence extends Parser
             #rl=result.length; log "result of child #{rl}: #{result[rl-1]}\n"
         return result
 
-    notify: -> @keys = firstChild.keys; super
+    notify: ->
+        c = @firstNonEpsilonChild()
+        @keys = c?.keys ? false
+        super
 
-    toString: -> "Sequence(#{@children.join ', '})"
+    toString: -> @name ? "Sequence(#{@children.join ', '})"
 
 
 #-------------------------------------------------------------------------------
@@ -295,6 +320,7 @@ exports.Choice = class Choice extends Parser
             children.unshift prec
             prec = 50
         @addOneChild child, prec-- for child in children
+        @notify()
         return @
 
     addOneChild: (child, prec) ->
@@ -330,9 +356,9 @@ exports.Choice = class Choice extends Parser
                 allPrecs.push precs[i]
         @indexed  = { }; @unindexed  = [ ]; @keys = { }
         @indexedP = { }; @unindexedP = [ ]
-        addOneChild child[i], prec[i] for i in [0...allChildren.length]
+        @addOneChild allChildren[i], allPrecs[i] for i in [0...allChildren.length]
 
-    notify: -> @reindex; super
+    notify: -> @reindex(); super
 
     parse: (lx) ->
         log "parse Choice on #{lx.peek()}\n"
@@ -347,7 +373,9 @@ exports.Choice = class Choice extends Parser
         return fail
 
     toString: ->
-        i = x for x of @indexed
+        return @name if @name
+        i = [ ]
+        i.push p for p in plist for _, plist of @indexed
         d = if @default? then " || default=#{@default}" else ""
         "Choice(#{i.join ' | '}#{d})"
 
@@ -362,11 +390,13 @@ exports.Maybe = class Maybe extends Parser
         super
         @parser = lift parser
 
+    notify: -> # don't notify, @keys is always false
+
     parse: (lx) ->
         result = @parser.call(lx)
         if result==fail then return false else return result
 
-    toString: -> "Maybe(#{@parser})"
+    toString: -> @name ? "Maybe(#{@parser})"
 
 #-------------------------------------------------------------------------------
 # TODO: maybe terminators don't make sense anymore
@@ -381,6 +411,8 @@ exports.List = class List extends Parser
         @keys       = @primary.keys
         primary.addListener @
 
+    notify: -> @keys = @primary.keys; super
+
     parse: (lx) ->
         results = [ ]
         loop
@@ -394,7 +426,8 @@ exports.List = class List extends Parser
         return fail if not @canBeEmpty and results.length==0
         return results
 
-    toString: -> "List(#{@primary})"
+    toString: ->
+        @name ? if @separator then "List(#{@primary}, #{@separator})" else "List(#{@primary})"
 
 #-------------------------------------------------------------------------------
 #
@@ -405,9 +438,7 @@ exports.Wrap = class Wrap extends Parser
         super
         @setParser parser if parser
 
-    notify: ->
-        @keys = @parser.keys
-        super
+    notify: -> @keys = @parser.keys; super
 
     parse: (lx) -> log "lx in wrap=#{lx}\n"; return @parser.call lx
 
@@ -417,7 +448,7 @@ exports.Wrap = class Wrap extends Parser
         @parser.addListener @
         return @
 
-    toString: -> "Wrap(#{@parser})"
+    toString: -> @name ? "Wrap(#{@parser})"
 
 #-------------------------------------------------------------------------------
 # If(triggerParser, parser, whenNotTriggered):
@@ -432,9 +463,7 @@ exports.If = class If extends Parser
         @keys    = @trigger.keys
         @trigger.addListener @
 
-    notify: ->
-        @keys = @trigger.keys
-        super
+    notify: -> @keys = @trigger.keys; super
 
     parse: (lx) ->
         if @trigger.call(lx) != fail
@@ -444,7 +473,7 @@ exports.If = class If extends Parser
             else return result
         else return @whenNotTriggered
 
-    toString: -> "If(#{@trigger},  #{@parser}, #{@whenNotTriggered})"
+    toString: -> @name ? "If(#{@trigger},  #{@parser}, #{@whenNotTriggered})"
 
 #-------------------------------------------------------------------------------
 # Token predicate.
@@ -454,7 +483,7 @@ exports.If = class If extends Parser
 #-------------------------------------------------------------------------------
 exports.filter = (x...) -> new Filter x...
 exports.Filter = class Filter extends Parser
-    constructor: (@predicate) ->
+    constructor: (@predicate) -> super
     parse: (lx) ->
         if @predicate(lx.peek()) then return lx.next() else return fail
 
@@ -497,12 +526,21 @@ exports.Expr = class Expr extends Parser
     setPrimary: (primary) ->
         @primary = lift primary
         @primary.addListener @
+        @notify()
         return @
 
     notify: ->
+        unless @primary.keys
+            print "ZZZ no keys in expr because of primary\n"
+            @keys = false
+            return super
         @keys = { }
         for k of @primary.keys
             @keys[k] = true
+        if @prefix.default
+            print "ZZZ no keys in expr because of prefixes #{@prefix.default}\n"
+            @keys = false
+            return super
         for k of @prefix
             @keys[k] = true
         super
@@ -523,7 +561,7 @@ exports.Expr = class Expr extends Parser
         keys = x.parser.keys
         #log "keys to add: #{(k for k of keys).join ', '}\n"
         unless keys
-            @error "duplicate default" if set.default
+            @error "duplicate defaults #{set.default.parser.toShortString()} and #{x.parser.toShortString()}" if set.default
             set.default = x # Works because string 'default' can't be a key
             #log "added default\n"
         else for key of keys
@@ -536,6 +574,7 @@ exports.Expr = class Expr extends Parser
                 (@keys[key] = true) for key of keys
             else @keys = false
             x.parser.addListener @
+            @notify()
         return @
 
     parse: (lx, prec) ->
@@ -618,28 +657,32 @@ exports.Expr = class Expr extends Parser
         log "result = #{r}\n"
         return r
 
-    toString: -> "Expr(#{@primary}...)"
+    toString: -> @name ? "Expr(#{@primary}...)"
 
 # Common ancestor of special parsers which don't consume any token.
 exports.EpsilonParser = class EpsilonParser extends Parser
 
 # Only succeed if the next token is preceded by some spacing.
 class Space extends EpsilonParser
-    toString: -> "Space"
+    typename: "Space"
     parse: (lx) -> return (if lx.peek().s then true else fail)
 exports.space = new Space()
 
 # Only succeed if the next token is NOT preceded by some spacing.
 class NoSpace extends EpsilonParser
-    toString: -> "NoSpace"
+    typename: "NoSpace"
     parse: (lx) -> return (if lx.peek().s then fail else true)
 exports.noSpace = new NoSpace()
 
 # Neutral element: always succeed without consuming any token.
 class One extends EpsilonParser
-    toString: -> "One"
+    typename: "One"
     parse: -> null
 exports.one = new One()
 
 # Absorbing element: always fail
 exports.zero = lift -> fail
+
+exports.named = (name, parser) ->
+    parser.name = name + "/" + parser.id
+    return parser

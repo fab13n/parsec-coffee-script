@@ -18,10 +18,10 @@ cs.keywords = new lex.Keywords(
   ">=", "++", "--", "->", "=>", "::", "==", "===", "..", "...")
 
 # Generic expression, to be populated later
-cs.expr = gg.expr()
+cs.expr = gg.named 'expr', gg.expr()
 
 # Single line of expressions, separated by semicolons
-cs.line = gg.list(cs.expr, ';')
+cs.line = gg.named 'line', gg.list(cs.expr, ';')
 
 # Block of indentation-delimited expressions
 cs.block = gg.sequence(
@@ -29,7 +29,7 @@ cs.block = gg.sequence(
 ).setBacktrack(true).setBuilder 1
 
 # Either a line or a block
-cs.lineOrBlock = gg.choice(cs.block, cs.line)
+cs.lineOrBlock = gg.names 'lineOrBlock', gg.choice(cs.block, cs.line)
 
 # Return statement, with optional value
 cs.return = gg.sequence("return", gg.maybe cs.expr).setBuilder (x) ->
@@ -39,7 +39,7 @@ cs.return = gg.sequence("return", gg.maybe cs.expr).setBuilder (x) ->
 cs.try = gg.sequence(
     "try", cs.block,
     gg.if('catch', gg.sequence(gg.id, cs.lineOrBlock)),
-    gg.if('finally', cs.block)
+    gg.if('finally', cs.block) #lineorbblock?
 ).setBuilder (x) ->
     tblock = x[1]
     [_, cid, cblock] = x[2] if x[2]
@@ -196,6 +196,7 @@ cs.dotAccessor = gg.sequence(
 
 # Support for list of elements which accept arbitrary indentations between
 # them. Used for array elements and function arguments.
+# Warning: multiLine doesn't handle keys.
 cs.multiLine = (args) ->
     { primary, prefix, suffix, separator } = args
     seq = gg.sequence(
@@ -205,13 +206,16 @@ cs.multiLine = (args) ->
         suffix ? gg.one,
     ).setBuilder 2
 
-    return gg.lift (lx) ->
+    p = gg.lift (lx) ->
         initialIndent = lx.indentation(0) # Remember indentation
         result = seq.call lx              # Read content
         while true                        # Skip closing dedents
             tok = lx.peek()
             if tok.t=='dedent' and tok.v>initialIndent then lx.next() else break
         return result
+    p.keys = seq.keys
+    seq.addListener p
+    return p
 
 optionalNewlines = # helper for cs.multiLine
     gg.list(gg.choice(gg.indent, gg.dedent, gg.newline), null, 'canbeempty')
@@ -232,7 +236,7 @@ cs.object = cs.multiLine {
 
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
-cs.primary = gg.choice(
+cs.primary = gg.named 'primary-expr', gg.choice(
     (gg.wrap gg.number).setBuilder (x) -> tree 'num', x
     (gg.wrap gg.id)    .setBuilder (x) -> tree 'id', x
     #gg.regexp,
@@ -240,8 +244,8 @@ cs.primary = gg.choice(
     #gg.js,
     cs.array,
     cs.object,
-    gg.choice("true", "yes", "on").setBuilder(-> tree 'Literal', 'true'),
-    gg.choice("false", "no", "off").setBuilder(-> tree 'Literal', 'false'),
+    gg.wrap("true").setBuilder(-> tree 'Literal', 'true'),
+    gg.wrap("false").setBuilder(-> tree 'Literal', 'false'),
     gg.wrap("break").setBuilder(-> tree 'Literal', "break"),
     gg.wrap("continue").setBuilder(-> tree 'Literal', "continue"),
     cs.if,
@@ -341,4 +345,8 @@ cs.parse = (parser, src) ->
     stream = new lex.Stream lexer
     # print("\nTokens: \n#{stream.tokens.join('\n')}\n\n")
     parser.call stream
+
+for name, p of cs
+    if p instanceof gg.Parser
+        gg.named "cs."+name, p
 
