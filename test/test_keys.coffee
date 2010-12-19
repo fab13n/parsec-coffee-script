@@ -2,6 +2,7 @@ Array.prototype.toString = -> '[ ' + (@join ', ') + ' ]'
 #Object.prototype.toString = ->
 #    '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
 
+#cs = require "../src/cstest"
 cs = require "../src/CoffeeScriptParser"
 gg = require "../src/GrammarGenerator"
 
@@ -10,13 +11,20 @@ print "\n\n--- Keys dump ---\n"
 kwlist = (set) ->
     ("'#{k.replace /^keyword\-/, '!'}'" for k of set).join ', '
 
+
 for name, parser of cs
+    continue unless parser instanceof gg.Parser
     if parser.keys
         print "cs.#{name}\t--has-keys-->\t#{kwlist parser.keys}\n"
         if parser instanceof gg.Expr
+            if parser.primary
+                print "\t expr primary keys: #{kwlist parser.primary.keys}\n"
+            else
+                print "\t no primary parser\n"
             for setname in ['prefix', 'infix', 'suffix']
                 set = parser[setname]
                 print "\t expr #{setname} keys: #{kwlist set}\n"
+    else print "cs.#{name} has no key\n"
 
 print '\n'
 

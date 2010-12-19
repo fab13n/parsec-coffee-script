@@ -48,6 +48,11 @@ lift = exports.lift = (x) ->
 #    include "keyword-foo" if there are some token streams starting with
 #    keyword "foo" that it might parse successfully.
 #
+#  * as a corollary, a parser with an empty set of keys (as opposed to
+#    no set at all, @keys==false), promizes never to succeed parsing
+#    anything. It might be the case for a parser in which we plan to
+#    add some children some time later.
+#
 # transformers: list of functions applied in sequence to the result of
 # the parsing. Allows to add post-processing in the AST generation.
 #
@@ -132,16 +137,17 @@ exports.Parser = class Parser
     # - P receives the notification, updates its keys in its implementation
     #   of @notify; if its own keys have changed, it propagates the notification
     #   through a final supernotify().
+    #
+    # TODO: delay notification until the first parsing occurs, to avoid
+    #       useless multiple notifications. Use a "dirty" flag instead,
+    #       and perform a check in @call
     notify: ->
-        #@error "Is anybody ever notified?!"
         #listener.notify() for listener in @listeners
-        #print " /// notified #{@toString()},\n \\\\\\ it got keys #{if @keys then (k.replace /^keyword\-/, '!' for k of @keys) else 'none'}\n"
         for listener in @listeners
             strkeys = (x) ->if x.keys then (k.replace /^keyword\-/, '!' for k of x.keys) else 'none'
-            print ">>> #{@toShortString()} notifies #{listener}; notifier's keys: #{strkeys @}\n"
+            print ">>> #{@toShortString()} notifies listener #{listener.toShortString()}; notifier's keys: #{strkeys @}\n"
             listener.notify()
-            print "<<< #{@toShortString()} has been notified, has keys #{strkeys listener}\n"
-        #print " /// notified #{@toString()},\n \\\\\\ it got keys #{if @keys then (k.replace /^keyword\-/, '!' for k of @keys) else 'none'}\n"
+            print "<<< #{@toShortString()} has notified listener #{listener.toShortString()}, listener has keys #{strkeys listener}\n"
 
 
     # Register another parser to be notified when this one is updated.
@@ -250,11 +256,11 @@ exports.Sequence = class Sequence extends Parser
         @children = lift child for child in children
         first = @firstNonEpsilonChild()
         if first
-            print "FNEC #{@toShortString()} = #{first.toShortString()}\n"
+            #print "ctor FNEC #{@toShortString()} = #{first.toShortString()}\n"
             @keys = first.keys
             first.addListener @
         else
-            print "NO FNEC in #{@toShortString()}\n"
+            #print "ctor NO FNEC in #{@toShortString()}\n"
             @keys = false
 
     firstNonEpsilonChild: ->
@@ -297,66 +303,98 @@ exports.Sequence = class Sequence extends Parser
 exports.choice = (x...) -> new Choice x...
 exports.Choice = class Choice extends Parser
 
-    # field indexed:  parsers to choose from, indexed by key.
-    #                 key -> list of children, sorted by decreasing precedence.
-    # field indexedP: children precedences, indexed by key then order.
-    #                 key -> list of precedences, the n-th entry is the precedence
-    #                 of the n-th parser in the corresponding parser list.
+    # field indexed:    parsers to choose from, indexed by key.
+    #                   key -> list of children, sorted by decreasing precedence.
+    # field indexedP:   children precedences, indexed by key then order.
+    #                   key -> list of precedences, the n-th entry is the precedence
+    #                   of the n-th parser in the corresponding parser list.
     # field unindexed:  key-less children, sorted by decreasing order.
     # field unindexedP: precedences of key-less children.
-    # field default: the optional keyless parser
+    # field default:    the optional keyless parser TODO UPDATE
+    # field unused:     parsers which are currently never used (they have zero keys)
+    #                   They might get new keys later, and notify the Choice combinator,
+    #                   which will then move them in @indexed or @unindexed.
+    # field unusedP:    precedence of unused children.
 
     constructor: (children...) ->
         super
-        @indexed   = { }
-        @unindexed = [ ]
-        @keys      = { }
-        @indexedP  = { }
-        @unindexedP= [ ]
+        @indexed    = { }
+        @unindexed  = [ ]
+        @keys       = { }
+        @indexedP   = { }
+        @unindexedP = [ ]
+        @unused     = [ ]
+        @unusedP    = [ ]
         @add children... if children.length>0
 
     add: (prec, children...) ->
         if typeof prec != 'number'
             children.unshift prec
             prec = 50
+        print "<add>\n"
         @addOneChild child, prec-- for child in children
+        print "</add>\n"
         @notify()
         return @
 
+    # add one child, at the given index, without notifying anyone nor
+    # triggering a
     addOneChild: (child, prec) ->
         insertWithPrec = (list, listP, x, p) ->
+            # TODO: smarter duplicate check (use precedence as a clue)
+            for j in [0 ... list.length]
+                if list[j] == child
+                    #print "ALREADY INDEXED\n"
+                    return
+
             for i in [list.length ... 0]
                 break if listP[i-1] >= p
             listP.splice i, 0, p
             list.splice  i, 0, x
 
         child = lift child
+        print "add1c #{child.toShortString()}, prec=#{prec}\n"
         @error "bad choice child" unless child instanceof Parser
         if child.keys
             for key of child.keys
+                hasAtLeastOneKey = true # TODO: is there an emptiness test for objects?
                 parsers = (@indexed[key]  ?= [ ])
                 precs   = (@indexedP[key] ?= [ ])
                 insertWithPrec parsers, precs, child, prec
                 @keys[key] = true if @keys
+            unless hasAtLeastOneKey
+                print "choice child #{child.toShortString()} has ZERO key\n"
+                insertWithPrec @unused, @unusedP, child, prec
+                #@unused.push child
+                #@unusedP.push prec
         else # if one child is key-less, the Choice parser is key-less.
-             insertWithPrec @unindexed, @unindexedP, child, prec
-             @keys = false
+            print "choice child #{child.toShortString()} has no key\n"
+            insertWithPrec @unindexed, @unindexedP, child, prec
+            @keys = false
         child.addListener @
 
     # Recompute the whole key indexing.
     # @add preserves indexation, so this is intended to cope with
     # modifications notified by children parsers.
     reindex: ->
-        allChildren = @unindexed
-        allPrecs    = @unindexedP
+        #_indexed = v for k, v of @indexed
+        #print "\treindexing #{@toShortString()}. \n\t\tunindexed children = #{@unindexed}; \n\t\tindexed = #{_indexed}\n\t\tunused = #{@unused}\n"
+        print "<reindex>\n"
+        allChildren = @unindexed.concat @unused
+        allPrecs    = @unindexedP.concat @unusedP
         for key, children of @indexed
+            print "\tindexed under #{key}:\n"
             precs = @indexedP[key]
             for i in [0...children.length]
+                print "\t\t#{children[i].toShortString()} indexed under #{key}\n"
                 allChildren.push children[i]
                 allPrecs.push precs[i]
-        @indexed  = { }; @unindexed  = [ ]; @keys = { }
-        @indexedP = { }; @unindexedP = [ ]
-        @addOneChild allChildren[i], allPrecs[i] for i in [0...allChildren.length]
+        @indexed  = { }; @unindexed  = [ ]; @unused  = [ ]; @keys = { }
+        @indexedP = { }; @unindexedP = [ ]; @unusedP = [ ];
+        for i in [0...allChildren.length]
+            #print "\t reindex add1c #{allChildren[i].toShortString()}\n"
+            @addOneChild allChildren[i], allPrecs[i]
+        print "</reindex>\n"
 
     notify: -> @reindex(); super
 
@@ -409,7 +447,7 @@ exports.List = class List extends Parser
         @separator  = lift separator if separator?
         # TODO: is it a good thing to let it propagate keys?
         @keys       = @primary.keys
-        primary.addListener @
+        @primary.addListener @
 
     notify: -> @keys = @primary.keys; super
 
@@ -530,32 +568,31 @@ exports.Expr = class Expr extends Parser
         return @
 
     notify: ->
-        unless @primary.keys
-            print "ZZZ no keys in expr because of primary\n"
+        unless @primary?.keys and not @prefix.default
+            print "NO EXPR KEY: "
+            print "no primary\n" unless @primary
+            print "primary with no key\n" if @primary and not @primary.keys
+            print "some unkeyed prefix" if @prefix.default
             @keys = false
-            return super
-        @keys = { }
-        for k of @primary.keys
-            @keys[k] = true
-        if @prefix.default
-            print "ZZZ no keys in expr because of prefixes #{@prefix.default}\n"
-            @keys = false
-            return super
-        for k of @prefix
-            @keys[k] = true
+        else
+            @keys = { }
+            for k of @primary.keys
+                @keys[k] = true
+            for k of @prefix
+                @keys[k] = true
         super
 
-    addPrefix: (x) -> @add @prefix, x
-    addInfix:  (x) -> @add @infix,  x
-    addSuffix: (x) -> @add @suffix, x
+    addPrefix: (x) -> @add 'prefix', x
+    addInfix:  (x) -> @add 'infix',  x
+    addSuffix: (x) -> @add 'suffix', x
 
     # add a rule to the expression parser.
     # set: 'prefix', 'infix' or 'suffix'.
     # x: object with fields parser, prec, builder.
     # For infix operators it should also have assoc.
     # prec defaults to 50, assoc defaults to 'left'.
-    add: (set, x)->
-        set = @[set] if typeof set is 'string'
+    add: (setname, x)->
+        set = @[setname]
         x.parser = lift x.parser
         x.prec ?= 50
         keys = x.parser.keys
@@ -565,9 +602,9 @@ exports.Expr = class Expr extends Parser
             set.default = x # Works because string 'default' can't be a key
             #log "added default\n"
         else for key of keys
-            @error "duplicate key #{key}" if set[key]
+            log "Expr: adding rule '#{x.parser.toShortString()}...' with key '#{key}'\n"
+            @error "duplicate #{setname} key #{key}" if set[key]
             set[key] = x
-            log "Expr: added rule '#{x.parser.toShortString()}...' with key '#{key}'\n"
         if set is @prefix
             print "XXXXX PREFIX ADDED, keys=#{keys}, @keys=#{@keys} XXXXX\n"
             if keys and @keys

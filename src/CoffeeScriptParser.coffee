@@ -29,7 +29,7 @@ cs.block = gg.sequence(
 ).setBacktrack(true).setBuilder 1
 
 # Either a line or a block
-cs.lineOrBlock = gg.names 'lineOrBlock', gg.choice(cs.block, cs.line)
+cs.lineOrBlock = gg.named 'lineOrBlock', gg.choice(cs.block, cs.line)
 
 # Return statement, with optional value
 cs.return = gg.sequence("return", gg.maybe cs.expr).setBuilder (x) ->
@@ -296,6 +296,8 @@ infix  'isnt', 110, 'left', '!='
 infix  'and',  110, 'left', '&&'
 infix  'or',   110, 'left', '||'
 prefix 'not',  180, '!'
+
+print "About to add ++\n"
 
 suffix '++', 180, '++suffix'
 suffix '--', 180, '--suffix'
