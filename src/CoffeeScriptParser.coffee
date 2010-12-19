@@ -194,31 +194,43 @@ cs.dotAccessor = gg.sequence(
     ".", gg.choice(gg.id, gg.anyKeyword)
 ).setBuilder 1
 
+
+optionalNewlines = # helper for class MultiLine
+    gg.list(gg.choice(gg.indent, gg.dedent, gg.newline), null, 'canbeempty')
+
 # Support for list of elements which accept arbitrary indentations between
 # them. Used for array elements and function arguments.
-# Warning: multiLine doesn't handle keys.
-cs.multiLine = (args) ->
-    { primary, prefix, suffix, separator } = args
-    seq = gg.sequence(
-        prefix ? gg.one,
-        optionalNewlines,
-        gg.list(primary, [separator ? gg.one, optionalNewlines]),
-        suffix ? gg.one,
-    ).setBuilder 2
+class MultiLine extends gg.Parser
+    constructor: (args) ->
+        super
+        { primary, prefix, suffix, separator } = args
+        @seq = gg.sequence(
+            prefix ? gg.one,
+            optionalNewlines,
+            gg.list(primary, [separator ? gg.one, optionalNewlines]),
+            suffix ? gg.one,
+        ).setBuilder 2
+        @seq.addListener @
+        @dirty=true
 
-    p = gg.lift (lx) ->
+    reindex: ->
+        @seq.reindex()
+        @keys = @seq.keys
+        return super
+
+    parse: (lx) ->
         initialIndent = lx.indentation(0) # Remember indentation
-        result = seq.call lx              # Read content
+        result = @seq.call lx             # Read content
         while true                        # Skip closing dedents
             tok = lx.peek()
             if tok.t=='dedent' and tok.v>initialIndent then lx.next() else break
         return result
-    p.keys = seq.keys
-    seq.addListener p
-    return p
 
-optionalNewlines = # helper for cs.multiLine
-    gg.list(gg.choice(gg.indent, gg.dedent, gg.newline), null, 'canbeempty')
+    toString: ->
+        @seq.toString().replace /^Sequence/, 'MultiLine'
+
+
+cs.multiLine = (args) -> new MultiLine args
 
 cs.array = cs.multiLine {
     prefix:    '['
