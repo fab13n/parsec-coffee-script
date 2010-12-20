@@ -127,7 +127,7 @@ exports.Parser = class Parser
 
     reindex: ->
         @dirty=false
-        print "<reindexed '#{@toShortString()}', keys = #{@keys2string()}>\n"
+        #print "<reindexed '#{@toShortString()}', keys = #{@keys2string()}>\n"
         return @
 
     # DEPRECATED?
@@ -406,7 +406,6 @@ exports.Choice = class Choice extends Parser
                     insertWithPrec parsers, precs, child, prec
                     @keys[key] = true if @keys
                 unless hasAtLeastOneKey
-                    print "choice child #{child.toShortString()} has ZERO key\n"
                     insertWithPrec @unused, @unusedP, child, prec
         return super
 
@@ -601,9 +600,8 @@ exports.Expr = class Expr extends Parser
 
         for setname in ['prefix', 'infix', 'suffix']
             oldset = @[setname]
-            newset = { indexed: { }, unindexed: [ ], list: [ ] }
+            newset = { indexed: { }, unindexed: [ ], list: oldset.list }
             for p in oldset.list
-                print "<reindex #{setname} '#{p.parser.toShortString()}'>\n"
                 p.parser.reindex()
                 keys = p.parser.keys
                 if not keys
@@ -637,6 +635,7 @@ exports.Expr = class Expr extends Parser
     # For infix operators it should also have assoc.
     # prec defaults to 50, assoc defaults to 'left'.
     add: (setname, x)->
+        log("adding #{setname} operator #{x}\n")
         set = @[setname]
         x.parser = lift x.parser
         x.prec ?= 50
@@ -665,7 +664,7 @@ exports.Expr = class Expr extends Parser
         log "prefix\n"
         { p, op } = @findParser @prefix, lx, prec
         log "prefix op candidate: #{op}\n"
-        if p and op != fail
+        if p
             e = @call lx, p.prec
             return @partialBuild p, op, e
         else
@@ -676,7 +675,7 @@ exports.Expr = class Expr extends Parser
     parseInfix:  (lx, e, prec) ->
         log "infix\n"
         { p, op } = @findParser @infix, lx, prec
-        return fail unless p and op!=fail
+        return fail unless p
 
         if p.assoc == 'flat'
             operands = [e]
@@ -700,18 +699,21 @@ exports.Expr = class Expr extends Parser
 
     parseSuffix: (lx, e, prec) ->
         log "suffix\n"
-        { p, op } = @findParser @prefix, lx, prec
-        return fail if not p or op==fail
+        { p, op } = @findParser @suffix, lx, prec
+        return fail unless p
         return @partialBuild p, e, op
 
 
     findParser: (set, lx, prec) ->
+        log("find a parser for #{lx.peek()}\n")
         candidates = set.indexed[lx.peek().getKey()] or set.unindexed
-        if candidates then for c in candidates
-            if c.prec<prec or c.assoc=='right' and c.prec==prec then break
-            op = c.call lx
-            if op != fail then p = c; break
-        return { p, op }
+        log("candidates = #{set.indexed}\n")
+        if candidates then for p in candidates
+            if p.prec<prec or p.assoc=='right' and p.prec==prec then continue
+            op = p.parser.call lx
+            if op != fail then log("found a candidate #{p}\n"); return { p, op }
+        log("nothing found\n")
+        return { p:false, op:fail }
 
     partialBuild: (p, args...) ->
         log "pbuild #{args}, "

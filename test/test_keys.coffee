@@ -1,6 +1,9 @@
 Array.prototype.toString = -> '[ ' + (@join ', ') + ' ]'
-#Object.prototype.toString = ->
-#    '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
+Function.prototype.toString = -> "<FUNCTION>"
+
+if false
+    Object.prototype.toString = ->
+        '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
 
 cs = require "../src/CoffeeScriptParser"
 gg = require "../src/GrammarGenerator"
@@ -50,3 +53,6 @@ for name, p of cs
 print "\ndependencies:\n"
 print (k for k of links).sort().join '\n'
 
+print '\n\ninfix:\n'
+
+print cs.expr.infix

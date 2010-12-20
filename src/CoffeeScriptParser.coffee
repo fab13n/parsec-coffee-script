@@ -33,7 +33,7 @@ cs.lineOrBlock = gg.named 'lineOrBlock', gg.choice(cs.block, cs.line)
 
 # Return statement, with optional value
 cs.return = gg.sequence("return", gg.maybe cs.expr).setBuilder (x) ->
-    tree 'Return', x[1] or tree 'Literal', 'null'
+    tree 'Return', x[1] or tree 'Null'
 
 # try ... catch ... finally
 cs.try = gg.sequence(
@@ -57,11 +57,12 @@ cs.whileLine = gg.sequence(
 cs.while = gg.sequence(
     cs.whileLine, cs.block
 ).setBuilder (x) ->
-    w=x[0]; tree "While", w.cond, w.invert, w.guard, x[1]
+    [w, body] = x
+    tree "While", w.cond, w.invert, w.guard, body
 
 # block-prefix loop statement
 cs.loop = gg.sequence('loop', cs.block).setBuilder (x) ->
-    tree "While", false, (tree 'Literal', 'true'), x[1]
+    tree "While", (tree 'True'), false, x[1]
 
 # for ... in/of ... when ... by ..., shared by block-prefix and suffix forms
 cs.forLine = gg.sequence(
@@ -87,7 +88,10 @@ cs.forLine = gg.sequence(
     )
 
 # block-prefix for statement
-cs.for = gg.sequence(cs.forLine, cs.block)
+cs.for = gg.sequence(cs.forLine, cs.block).setBuilder (x) ->
+    [t, body] = x
+    t.push body
+    return t
 
 # then ... or block, shared by if and switch statements
 cs.thenLineOrBlock = gg.choice(
@@ -127,8 +131,8 @@ cs.class = gg.sequence(
 cs.at = gg.sequence(
     "@", gg.maybe [gg.noSpace, gg.id]
 ).setBuilder (x) ->
-    if x[1] then tree 'Accessor', (tree 'Literal', 'this'), x[1][1]
-    else tree 'Literal', 'this'
+    if x[1] then tree 'Accessor', (tree 'This'), x[1][1]
+    else tree 'This'
 
 # Single function call argument. splats "..." are authorized only after
 # parameters and arguments, in order to avoid confusion with slices.
@@ -308,8 +312,6 @@ infix  'isnt', 110, 'left', '!='
 infix  'and',  110, 'left', '&&'
 infix  'or',   110, 'left', '||'
 prefix 'not',  180, '!'
-
-print "About to add ++\n"
 
 suffix '++', 180, '++suffix'
 suffix '--', 180, '--suffix'

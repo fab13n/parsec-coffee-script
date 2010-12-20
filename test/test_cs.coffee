@@ -1,3 +1,10 @@
+Array.prototype.toString = -> '[ ' + (@join ', ') + ' ]'
+Function.prototype.toString = -> "<FUNCTION>"
+
+if false
+    Object.prototype.toString = ->
+        '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
+
 cs = require "../src/CoffeeScriptParser"
 gg = require "../src/GrammarGenerator"
 { tree, toIndentedString } = require '../src/Tree'
@@ -9,7 +16,6 @@ src.id = "foo"
 
 # Don't accept keywords as id
 src.fail_id = "if"
-
 
 # function calls
 src.calls = """
@@ -140,6 +146,10 @@ if process.argv.length>0
         if src[name] then listed_tests[name] = true
         else throw new Error "Unknown test case #{name}"
 
+log = [ ]
+logError = (msg)->
+    print "\n>>>>>>>>> ERROR: #{msg}\n"
+    log.push msg
 
 # Pass all tests in sequence
 for name, x of src
@@ -148,12 +158,16 @@ for name, x of src
     t = cs.parse x
     fail = t==gg.fail
     if name.match /^fail_/
-        if not fail then throw new Error "Test #{name} should have failed"
-        else print "\nCompilation of #{name} failed, as expected\n"
+        if not fail then logError "Test #{name} should have failed"
+        else print "\n#{name} input:\n#{x}\n\nCompilation of #{name} failed, as expected\n"
     else
-        if fail then throw new Error ("Failure on src.#{name}")
+        if fail then logError "Failure on src.#{name}"
         else print "\n#{name} input:\n#{x}\n\n#{name} result:\n#{toIndentedString t}\n"
 
-print "\nTest passed\n"
+if log.length==0
+    print "\nTest passed\n"
+else
+    n=0; (n++ for _ of src)
+    print "\n#{log.length} failures out of #{n}: #{log.join '\n'}\n"
 
 #TODO: src finishing with a comment
