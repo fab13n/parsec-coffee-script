@@ -1,7 +1,7 @@
 # Grammar generator
 #
 
-enableLogs = true
+enableLogs = false
 if enableLogs then log = print else log = ->
 
 log2=print

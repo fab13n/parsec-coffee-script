@@ -140,6 +140,16 @@ src.operators = """
     -1 - - --2
 """
 
+src.if1 = """
+    if cond
+        a
+        b
+        c
+"""
+src.if2 = """
+    if cond then a; b; c
+"""
+
 if process.argv.length>0
     listed_tests = { }
     for name in process.argv
@@ -165,7 +175,7 @@ for name, x of src
         else print "\n#{name} input:\n#{x}\n\n#{name} result:\n#{toIndentedString t}\n"
 
 if log.length==0
-    print "\nTest passed\n"
+    print "\nAll tests passed successfully\n"
 else
     n=0; (n++ for _ of src)
     print "\n#{log.length} failures out of #{n}: #{log.join '\n'}\n"
