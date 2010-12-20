@@ -2,15 +2,18 @@ Array.prototype.toString = -> '[ ' + (@join ', ') + ' ]'
 #Object.prototype.toString = ->
 #    '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
 
-#cs = require "../src/cstest"
 cs = require "../src/CoffeeScriptParser"
 gg = require "../src/GrammarGenerator"
-
-print "\n\n--- Keys dump ---\n"
 
 kwlist = (set) ->
     ("'#{k.replace /^keyword\-/, '!'}'" for k of set).join ', '
 
+
+for name, parser of cs
+    continue unless parser instanceof gg.Parser
+    parser.reindex()
+
+print "\n\n--- Keys dump ---\n"
 
 for name, parser of cs
     continue unless parser instanceof gg.Parser

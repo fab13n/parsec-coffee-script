@@ -272,6 +272,7 @@ exports.Sequence = class Sequence extends Parser
         return false
 
     reindex: ->
+        return @ unless @dirty
         fnec = @firstNonEpsilonChild()
         if fnec
             fnec.reindex()
@@ -322,6 +323,11 @@ exports.Choice = class Choice extends Parser
     #                   They might get new keys later, and notify the Choice combinator,
     #                   which will then move them in @indexed or @unindexed.
     # field unusedP:    precedence of unused children.
+    #
+    # TODO: structurate as Expr: by putting parsers and parsers metadata in s single record,
+    #       by appending unindexed parser to every index,
+    #       by keeping a list.
+    #       if precedence is kept in list, it might be removed from indexes.
 
     constructor: (children...) ->
         super
@@ -357,7 +363,7 @@ exports.Choice = class Choice extends Parser
     # reindexings are triggered later.
     reindex: ->
 
-        return unless @dirty
+        return @ unless @dirty
 
         # insert a child and its precedence in the correct lists,
         # at places which preserve the property that precedence lists are
@@ -455,7 +461,7 @@ exports.List = class List extends Parser
         @dirty = true
 
     reindex: ->
-        return unless @dirty
+        return @ unless @dirty
         if @canBeEmpty then @keys=false
         else @primary.reindex(); @keys = @primary.keys
         return super
@@ -496,6 +502,7 @@ exports.Wrap = class Wrap extends Parser
         return @
 
     reindex: ->
+        return @ unless @dirty
         @parser.reindex()
         @keys = @parser.keys
         return super
@@ -516,6 +523,7 @@ exports.If = class If extends Parser
         @trigger.addListener @
 
     reindex: ->
+        return @ unless @dirty
         @trigger.reindex()
         @keys = @trigger.keys
         return super
@@ -575,9 +583,9 @@ exports.Expr = class Expr extends Parser
     constructor: (primary) ->
         super
         @setPrimary primary if primary?
-        @prefix  = { indexed: { }, list: [ ] }
-        @infix   = { indexed: { }, list: [ ] }
-        @suffix  = { indexed: { }, list: [ ] }
+        @prefix  = { indexed: { }, unindexed: [ ], list: [ ] }
+        @infix   = { indexed: { }, unindexed: [ ], list: [ ] }
+        @suffix  = { indexed: { }, unindexed: [ ], list: [ ] }
         @keys    = { }
 
     # TODO: support key update if expression parsers eventually support keys.
@@ -588,24 +596,31 @@ exports.Expr = class Expr extends Parser
         return @
 
     reindex: ->
-        return unless @dirty
+        return @ unless @dirty
         @primary.reindex()
 
         for setname in ['prefix', 'infix', 'suffix']
             oldset = @[setname]
-            newset = { list: oldset.list, indexed: { } }
+            newset = { indexed: { }, unindexed: [ ], list: [ ] }
             for p in oldset.list
                 print "<reindex #{setname} '#{p.parser.toShortString()}'>\n"
                 p.parser.reindex()
                 keys = p.parser.keys
                 if not keys
-                    if newset.unindexed then @error "duplicate unindexed for #{setname}"
-                    else newset.unindexed = p
+                    newset.unindexed.push p
                 else for k of keys
-                    if newset.indexed[k] then @error "duplicate key #{k} for #{setname}"
-                    else newset.indexed[k] = p
+                    (newset.indexed[k] ?= [ ]).push p
             @[setname] = newset
-        if not @primary.keys or @prefix.default then @keys=false
+
+            precSort = (a,b) -> a.prec>b.prec
+            newset.unindexed.sort precSort
+            if newset.unindexed.length>0 then for k, list of newset.indexed
+                newset.indexed[k] = list.concat newset.unindexed
+            for k, list of newset.indexed
+                list.sort precSort
+            @[setname] = newset
+
+        if not @primary.keys or @prefix.unindexed.length>0 then @keys=false
         else
             @keys = { }
             (@keys[k] = true) for k of @primary.keys
@@ -648,8 +663,7 @@ exports.Expr = class Expr extends Parser
 
     parsePrefix: (lx, prec) ->
         log "prefix\n"
-        p  = @getParser @prefix, lx.peek()
-        op = p.parser.call lx if p?
+        { p, op } = @findParser @prefix, lx, prec
         log "prefix op candidate: #{op}\n"
         if p and op != fail
             e = @call lx, p.prec
@@ -658,48 +672,46 @@ exports.Expr = class Expr extends Parser
             log "primary, then.\n"
             return @primary.call lx
 
+
     parseInfix:  (lx, e, prec) ->
         log "infix\n"
-        p  = @getParser @infix, lx.peek()
-        return fail unless p?
+        { p, op } = @findParser @infix, lx, prec
+        return fail unless p and op!=fail
 
-        if p.prec > prec and p.assoc == 'flat'
+        if p.assoc == 'flat'
             operands = [e]
             loop
-                op = p.parser.call lx
-                break if op==fail
-                # TODO: undo & return fail on operand parsing failure
                 operands.push @call lx, p.prec
-                break unless p == @getParser @infix, lx.peek()
+                break if p.parser.call lx, p.prec == fail
             return @partialBuild p, operands
 
-        else if p.prec > prec or p.prec == prec and p.assoc == 'right'
-            log "parsing operator #{lx.peek().v} of precedence #{p.prec} because current precedence is #{prec}\n"
-            op = p.parser.call lx
-            return fail if op==fail
+        else if p.assoc == 'none' and p.prec == prec
+            # TODO: I don't really know what i'm doing here
+            log "Warning, non-associative operator can't resolve precedence\n"
+            return fail
+
+        else
+            log "parsed operator #{lx.peek().v} (#{p.prec}) because current precedence was #{prec}\n"
             log "about to parse e2, next is #{lx.peek()}\n"
             e2 = @call lx, p.prec
-            # TODO: undo & return fail on operand parsing failure
+            # TODO: undo & return fail if e2 fails?
             log "e2=#{e2}\n"
             return @partialBuild p, e, op, e2
 
-        else if p.assoc == 'none' and p.prec == prec
-            log "Waring, non-associative operator can't resolve precedence\n"
-            return fail
-
-        else return fail
-
     parseSuffix: (lx, e, prec) ->
         log "suffix\n"
-        p = @getParser @suffix, lx.peek()
-        return fail unless p?
-        op = p.parser.call lx
-        return fail if op==fail
+        { p, op } = @findParser @prefix, lx, prec
+        return fail if not p or op==fail
         return @partialBuild p, e, op
 
-    getParser: (set, token) ->
-        log "getting expr parser for key #{token}\n"
-        return set.indexed[token.getKey()] or set.unindexed
+
+    findParser: (set, lx, prec) ->
+        candidates = set.indexed[lx.peek().getKey()] or set.unindexed
+        if candidates then for c in candidates
+            if c.prec<prec or c.assoc=='right' and c.prec==prec then break
+            op = c.call lx
+            if op != fail then p = c; break
+        return { p, op }
 
     partialBuild: (p, args...) ->
         log "pbuild #{args}, "
