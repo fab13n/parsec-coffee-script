@@ -6,6 +6,13 @@ questionnable lack of relative precedence between || and &&, | and &
 I miss a do/while, although indentation might be tricky
 No interpolation in object literal keys { "#{foo}": bar }
 
+f(
+  foo bar,
+  gnu
+)
+
+translates to f(foo(bar, gnu))
+
 Todo:
 
 complete notification system, which is currently disabled. Circular

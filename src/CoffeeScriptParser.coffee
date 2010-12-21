@@ -95,7 +95,7 @@ cs.for = gg.sequence(cs.forLine, cs.block).setBuilder (x) ->
 
 # then ... or block, shared by if and switch statements
 cs.thenLineOrBlock = gg.choice(
-    gg.sequence("then", cs.line).setBuilder 1,
+    gg.sequence("then", cs.line).setBuilder(1),
     cs.block
 )
 
@@ -260,10 +260,10 @@ cs.primary = gg.named 'primary-expr', gg.choice(
     #gg.js,
     cs.array,
     cs.object,
-    gg.wrap("true").setBuilder(-> tree 'Literal', 'true'),
-    gg.wrap("false").setBuilder(-> tree 'Literal', 'false'),
-    gg.wrap("break").setBuilder(-> tree 'Literal', "break"),
-    gg.wrap("continue").setBuilder(-> tree 'Literal', "continue"),
+    gg.wrap("true").setBuilder(-> tree 'True'),
+    gg.wrap("false").setBuilder(-> tree 'False'),
+    gg.wrap("break").setBuilder(-> tree 'Break'),
+    gg.wrap("continue").setBuilder(-> tree 'Continue'),
     cs.if,
     cs.try,
     cs.while,
@@ -348,6 +348,9 @@ suffix cs.bracketAccessor, 90, (x, i) ->
     [ a, op, b ] = i
     return tree "Accessor", x, a unless op
     return tree "RangeAccessor", x, op, a, b
+
+infix 'if',     60, 'right', (a,_,b) -> tree 'If', b, a
+infix 'unless', 60, 'right', (a,_,b) -> tree 'If', (tree '!', b), a
 
 # main parsing function
 cs.parse = (parser, src) ->

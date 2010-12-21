@@ -146,9 +146,19 @@ src.if1 = """
         b
         c
 """
+
 src.if2 = """
     if cond then a; b; c
 """
+
+src.if3 = """
+    doit() if condition
+"""
+
+src.if4 = """
+    doit() if cond1 if cond2
+"""
+
 
 if process.argv.length>0
     listed_tests = { }

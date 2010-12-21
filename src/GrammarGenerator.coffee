@@ -127,7 +127,7 @@ exports.Parser = class Parser
 
     reindex: ->
         @dirty=false
-        #print "<reindexed '#{@toShortString()}', keys = #{@keys2string()}>\n"
+        print "<reindexed '#{@toShortString()}', keys = #{@keys2string()}>\n"
         return @
 
     # DEPRECATED?
