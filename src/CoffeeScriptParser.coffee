@@ -250,13 +250,26 @@ cs.object = cs.multiLine {
     suffix:    '}' }
 .setBuilder (x) -> tree 'Object', x
 
+cs.string = gg.wrap(gg.string).setBuilder((x) -> tree 'String', x)
+
+cs.interpString = gg.sequence(
+    gg.interpStart,
+    gg.list(
+        gg.choice(
+            gg.sequence(gg.interpEsc, cs.expr, gg.interpUnesc).setBuilder(1),
+            cs.string)
+    ).setBuilder((x) -> tree '+', x...),
+    gg.interpEnd
+).setBuilder 1
+
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
 cs.primary = gg.named 'primary-expr', gg.choice(
     (gg.wrap gg.number).setBuilder (x) -> tree 'num', x
     (gg.wrap gg.id)    .setBuilder (x) -> tree 'id', x
     #gg.regexp,
-    #gg.string, not implemented
+    cs.string,
+    cs.interpString,
     #gg.js,
     cs.array,
     cs.object,

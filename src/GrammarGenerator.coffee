@@ -238,6 +238,12 @@ exports.indent     = new Const 'indent'
 exports.dedent     = new Const 'dedent'
 exports.newline    = new Const 'newline'
 exports.javascript = new Const 'javascript'
+exports.interpStart= new Const 'interpStart'
+exports.interpEnd  = new Const 'interpEnd'
+exports.interpEsc  = new Const 'interpEsc'
+exports.interpUnesc= new Const 'interpUnesc'
+exports.javascript = new Const 'javascript'
+exports.string     = new Const 'string'
 exports.keyword    = keyword = (values...) -> new Const 'keyword', true, values...
 
 #-------------------------------------------------------------------------------

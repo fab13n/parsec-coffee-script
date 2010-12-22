@@ -1,49 +1,29 @@
 Points to raise:
 
-check whether there isn't some inconsitanecy in the way || and binary ? combine
-== and != chains can't be mixed with inequality chains
-questionnable lack of relative precedence between || and &&, | and &
-I miss a do/while, although indentation might be tricky
-No interpolation in object literal keys { "#{foo}": bar }
+check whether there isn't some inconsitanecy in the way || and binary ? combine.
+
+== and != chains can't be mixed with inequality chains.
+
+questionnable lack of relative precedence between || and &&, | and &.
+
+I miss a do/while, although indentation might be tricky.
+
+No interpolation in object literal keys { "#{foo}": bar }.
 
 f(
   foo bar,
   gnu
 )
-
-translates to f(foo(bar, gnu))
+translates to f(foo(bar, gnu)), spontaneously reads as f(foo(bar), gnu)
 
 Todo:
 
-complete notification system, which is currently disabled. Circular
-dependences must be handled one way or another.
+Detect circular dependencies in notification chains, esp. if they
+coincide with left recursions that won't work.
 
-There might be some pragmatic simplifications to the notification
-system. For instance, it could be acceptable that parsers only add
-keywords, never remove any.
+let flat operators work by families, e.g. for "x<y>z" chains.
 
-The notification has some problems with circular dependencies, and
-triggers itself more often than necessary (at each intermediate
-construction step). A better alternative would perform keying only on
-demand, presumably just before actually parsing.
+interpolated strings parsing
 
-Parsers have a flag @badKeys. When set, it means that its keys must be
-reorganised. rekeying involves requesting the relevant children's
-keys (possibly triggering their own rekeying), and rebuilding its own
-@keys. 
+support for ///.../// regexps, remove interpolation in /.../
 
-Notice that in most cases, there's a list of key transmitting
-children. 
-
-To break circular dependencies, a fixpoint algorithm is needed. A
-parser can have a state "rekeying in progress", stored in @badKeys. If
-a child in such a state is found, it means that a cycle has been
-found. However, even while rekeying, a partial list of keys is
-known. When rekeying is in progress, return this partial list, and
-remember:
-- that this parser hasn't reached a fixpoint
-- its current @keys
-The @keys must be watched for growth until a fixpoint is found.
-
-
-In expression parsers, operators must currently be unique per key.

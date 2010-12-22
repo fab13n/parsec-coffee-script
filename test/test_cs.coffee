@@ -159,6 +159,14 @@ src.if4 = """
     doit() if cond1 if cond2
 """
 
+src.string1 = """
+    x = "string"
+"""
+
+src.string2 = '''
+    x = "text#{symbol}textAgain"
+'''
+
 
 if process.argv.length>0
     listed_tests = { }
