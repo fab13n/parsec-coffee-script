@@ -167,12 +167,22 @@ src.string2 = '''
     x = "text#{symbol}textAgain"
 '''
 
+src.string3 = '''
+    x = "t1#{esc1 "t2#{esc2}*t2"}t1"
+'''
 
 if process.argv.length>0
+    used_regex = { }
     listed_tests = { }
-    for name in process.argv
-        if src[name] then listed_tests[name] = true
-        else throw new Error "Unknown test case #{name}"
+    for name of src
+        for regex in process.argv
+            if name.match regex
+                listed_tests[name] = true
+                used_regex[regex]  = true
+                break
+    for regex in process.argv
+        unless used_regex[regex]
+            print "Warning, unused regex '#{regex}'\n"
 
 log = [ ]
 logError = (msg)->
