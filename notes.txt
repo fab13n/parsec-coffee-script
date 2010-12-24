@@ -27,3 +27,4 @@ interpolated strings parsing
 
 support for ///.../// regexps, remove interpolation in /.../
 
+lifting strings into token streams when applicable?

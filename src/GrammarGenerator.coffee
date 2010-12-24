@@ -27,6 +27,8 @@ lift = exports.lift = (x) ->
     return new Sequence(x...) if x instanceof Array
     return new LiftedFunction(x) if x instanceof Function
     return     keyword(x) if typeof x == 'string'
+    return     one  if x == 1
+    return     zero if x == 0
     throw  new Error "null argument to parser" unless x
     throw  new Error "Parser expected, got #{x.toString()}"
 
@@ -123,6 +125,10 @@ exports.Parser = class Parser
             else n=builder; @builder = (x) -> x[n]
         else if builder instanceof Function then @builder = builder
         else k=builder; @builder = ->k
+        return @
+
+    addTransformer: (t...) ->
+        @transformers = @transformers.concat t
         return @
 
     reindex: ->
@@ -354,8 +360,14 @@ exports.Choice = class Choice extends Parser
             children.unshift prec
             prec = 50
 
-        for child in children
-            child = lift child
+        i=0
+        len=children.length
+        while i<len
+            x = children[i++]
+            if typeof i == 'number'
+                prec = x
+                x = children[i++]
+            child = lift x
             @unused.push child
             @unusedP.push prec--
             child.addListener @
@@ -544,6 +556,7 @@ exports.If = class If extends Parser
     toString: -> @name ? "If(#{@trigger},  #{@parser}, #{@whenNotTriggered})"
 
 #-------------------------------------------------------------------------------
+# TODO: remove?
 # Token predicate.
 #
 # Take a predicate on tokens as a constructor parameter, suceed by consuming
