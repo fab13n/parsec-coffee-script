@@ -5,10 +5,24 @@
 
 exports.tree = (x...) -> new Tree x...
 
+equal = (a,b) ->
+    if a instanceof Array
+        return false unless b instanceof Array
+        return false unless a.length == b.length
+        for i in [0...a.length]
+            return false unless a[i] == b[i]
+        return true
+    else if a instanceof Tree
+        return a.tag==b.tag and equal(a.children, b.children)
+    else return a==b
+
+exports.equal=equal
+
 class Tree
     constructor: (@tag, @children...) ->
     toString: -> "`#{@tag}(#{@children.join ', '})"
     toIndentedString: -> toIndentedString @
+    equal: (a) -> equal(@, a)
 
 # Print a tree with a readable indentation.
 exports.toIndentedString = toIndentedString = (x) ->
@@ -39,3 +53,4 @@ exports.toIndentedString = toIndentedString = (x) ->
     b = [ ]
     rec(x, b, '')
     return b.join("")
+

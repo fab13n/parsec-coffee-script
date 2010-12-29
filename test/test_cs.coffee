@@ -7,9 +7,10 @@ if false
 
 cs = require "../src/CoffeeScriptParser"
 gg = require "../src/GrammarGenerator"
-{ tree, toIndentedString } = require '../src/Tree'
+{ tree, toIndentedString, equal:astEqual } = require '../src/Tree'
 
 src = { }
+ast = { }
 
 # basic identifier
 src.id = "foo"
@@ -182,6 +183,13 @@ src.cmp2 = '''
     x<y<z
 '''
 
+ast.cmp2 = [
+    (tree 'Op', '<',
+        (tree 'Op', '<',
+            (tree 'id', 'x'),
+            (tree 'id', 'y')),
+        (tree 'id', 'z')) ]
+
 if process.argv.length>0
     used_regex = { }
     listed_tests = { }
@@ -207,10 +215,16 @@ for name, x of src
     t = cs.parse x
     hasFailed  = t is gg.fail
     shouldFail = name.match /^fail_/
+    if (a=ast[name])
+        astFailed = not astEqual a, t
+        hasFailed ||= astFailed
+
     if hasFailed and shouldFail
         print "\n#{name} input:\n#{x}\n\nCompilation of #{name} failed, as expected\n"
+    else if astFailed and not shouldFail
+        logError "Failure, invalid tree for src.#{name}\nexp: #{ast[name]}\ngot: #{t}"
     else if hasFailed and not shouldFail
-        logError "Failure on src.#{name}"
+        logError "Failure, cannot parse src.#{name}"
     else if not hasFailed and shouldFail
         logError "Test #{name} should have failed"
     else if not hasFailed and not shouldFail
