@@ -171,6 +171,17 @@ src.string3 = '''
     x = "t1#{esc1 "t2#{esc2}*t2"}t1"
 '''
 
+src.cmp1 = '''
+    x<1
+    x>2
+    x==3
+    x is 4
+'''
+
+src.cmp2 = '''
+    x<y<z
+'''
+
 if process.argv.length>0
     used_regex = { }
     listed_tests = { }
@@ -194,13 +205,16 @@ for name, x of src
     continue if listed_tests and not listed_tests[name]
     print "\n***** Test #{name} *****\n"
     t = cs.parse x
-    fail = t==gg.fail
-    if name.match /^fail_/
-        if not fail then logError "Test #{name} should have failed"
-        else print "\n#{name} input:\n#{x}\n\nCompilation of #{name} failed, as expected\n"
-    else
-        if fail then logError "Failure on src.#{name}"
-        else print "\n#{name} input:\n#{x}\n\n#{name} result:\n#{toIndentedString t}\n"
+    hasFailed  = t is gg.fail
+    shouldFail = name.match /^fail_/
+    if hasFailed and shouldFail
+        print "\n#{name} input:\n#{x}\n\nCompilation of #{name} failed, as expected\n"
+    else if hasFailed and not shouldFail
+        logError "Failure on src.#{name}"
+    else if not hasFailed and shouldFail
+        logError "Test #{name} should have failed"
+    else if not hasFailed and not shouldFail
+        print "\n#{name} input:\n#{x}\n\n#{name} result:\n#{toIndentedString t}\n"
 
 if log.length==0
     print "\nAll tests passed successfully\n"

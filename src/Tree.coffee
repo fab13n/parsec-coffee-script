@@ -14,7 +14,7 @@ class Tree
 exports.toIndentedString = toIndentedString = (x) ->
     rec = (x, b, i) ->
         if x instanceof Tree
-            b.push x.tag
+            b.push '`'+x.tag
             nChildren = x.children.length
             if nChildren==0
                 return b
@@ -30,6 +30,8 @@ exports.toIndentedString = toIndentedString = (x) ->
                 rec(child, b, i+"  ")
                 b.push ",\n  "+i if n<nChildren-1
             b.push " ]"
+        else if typeof x is 'string'
+            b.push '"'+x+'"'
         else if x?
             b.push x.toString()
         else

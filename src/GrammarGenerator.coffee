@@ -84,7 +84,13 @@ exports.Parser = class Parser
     # Run the parser on the token stream `lx', consumming tokens out of it
     # if applicable. Return the object `fail' and leaves the token stream
     # unchanged if parsing fails.
-    call: (args...) ->
+    call: (lx, args...) ->
+
+        if typeof lx is 'string'
+            if exports.defaultStreamMaker
+                lx = exports.defaultStreamMaker lx
+            else
+                @error "token stream expected"
 
         callNest++
         log2("|  ") for _ in [0..callNest]
@@ -92,7 +98,7 @@ exports.Parser = class Parser
 
         if @dirty then @reindex()
 
-        x = @parse(args...)
+        x = @parse(lx, args...)
 
         if x==fail
             log2("|  ") for _ in [0..callNest]
@@ -364,7 +370,7 @@ exports.Choice = class Choice extends Parser
         len=children.length
         while i<len
             x = children[i++]
-            if typeof i == 'number'
+            if typeof x == 'number'
                 prec = x
                 x = children[i++]
             child = lift x
@@ -587,10 +593,15 @@ exports.Filter = class Filter extends Parser
 #            as +(A, B, C).
 #
 # @infix, @prefix and @suffix are structures with fields:
-# * indexed which associate a key to a
-#   record with fields 'parser', 'prec', 'builder' (and 'assoc' for @infix).
-# * unindexed which contains the optional keyless parser.
-# * list where each parser record appears exactly once, for easy reindexing.
+#
+# * 'indexed' which associate a key to a list of records,
+#   sorted by decreasing precedence,
+#   with fields 'parser', 'prec', 'builder' (plus 'assoc' for @infix).
+#
+# * 'unindexed' which contains the list of keyless parsers, sorted by
+#   decreasing precedence.
+#
+# * 'list' where each parser record appears exactly once, for easy reindexing.
 #
 # TODO: transformers should be applied on all intermediate sub-expressions.
 #-------------------------------------------------------------------------------
@@ -656,6 +667,7 @@ exports.Expr = class Expr extends Parser
     add: (setname, x)->
         log("adding #{setname} operator #{x}\n")
         set = @[setname]
+        @error "missing builder" unless x.builder
         x.parser = lift x.parser
         x.prec ?= 50
         x.assoc ?= 'left' if setname == 'infix'
@@ -696,12 +708,17 @@ exports.Expr = class Expr extends Parser
         { p, op } = @findParser @infix, lx, prec
         return fail unless p
 
+        # TODO: handle operator families, such as a<b>c==d!=e<=f>=g
         if p.assoc == 'flat'
-            operands = [e]
+            operands  = [e]
+            operators = [op]
             loop
-                operands.push @call lx, p.prec
-                break if p.parser.call lx, p.prec == fail
-            return @partialBuild p, operands
+                e2 = @call lx, p.prec
+                operands.push e2
+                op2 = p.parser.call lx, p.prec
+                break if op2 == fail
+                operators.push op2
+            return @partialBuild p, operands, operators
 
         else if p.assoc == 'none' and p.prec == prec
             # TODO: I don't really know what i'm doing here
@@ -722,24 +739,27 @@ exports.Expr = class Expr extends Parser
         return fail unless p
         return @partialBuild p, e, op
 
-
+    # Find an op parser of precedence at least 'prec', within 'set',
+    # which parses successfully the token stream 'lx'.
+    # Return a record with fields 'p' the winning parser, and 'op'
+    # the result of calling parser 'p'
+    # (the parser had to be called, to heck that it wouldn't return fail)
     findParser: (set, lx, prec) ->
         log("find a parser for #{lx.peek()}\n")
         candidates = set.indexed[lx.peek().getKey()] or set.unindexed
         log("candidates = #{set.indexed}\n")
-        if candidates then for p in candidates
-            if p.prec<prec or p.assoc=='right' and p.prec==prec then continue
-            op = p.parser.call lx
-            if op != fail then log("found a candidate #{p}\n"); return { p, op }
+        if candidates
+            for p in candidates
+                break if p.prec < prec
+                break if p.assoc == 'right' and p.prec == prec
+                op = p.parser.call lx
+                return { p, op } if op != fail
         log("nothing found\n")
         return { p:false, op:fail }
 
     partialBuild: (p, args...) ->
         log "pbuild #{args}, "
-        b = p.builder
-        if not b then r = args[0]
-        else if typeof b == 'number' then r = args[b]
-        else r = b(args...)
+        r = p.builder(args...)
         log "result = #{r}\n"
         return r
 

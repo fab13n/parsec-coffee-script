@@ -4,18 +4,18 @@ lex = require './Lexer'
 cs = exports
 
 # reserved keywords
-cs.keywords = new lex.Keywords(
-  "if", "else", "true", "false", "new", "return", "try", "catch",
-  "finally", "throw", "break", "continue", "for", "in", "while",
-  "delete", "instanceof", "typeof", "switch", "super", "extends",
-  "class", "this", "null", "debugger", "and", "or", "is", "isnt",
-  "not", "then", "unless", "until", "loop", "yes", "no", "on", "off",
-  "of", "by", "where", "when", "case", "default", "do", "function",
-  "var", "void", "with", "const", "let", "enum", "export", "import",
-  "native", "__hasProp", "__extends", "__slice", "-=", "+=", "/=",
-  "*=", "%=", "||=", "&&=", "?=", "<<=", ">>=", ">>>=", "&=", "^=",
-  "|=", "!!", "typeof", "delete", "&&", "||", "<<", ">>", ">>>", "<=",
-  ">=", "++", "--", "->", "=>", "::", "==", "===", "..", "...")
+cs.keywords = new lex.Keywords( "if", "else", "true", "false", "new",
+  "return", "try", "catch", "finally", "throw", "break", "continue",
+  "for", "in", "while", "delete", "instanceof", "typeof", "switch",
+  "super", "extends", "class", "this", "null", "debugger", "and",
+  "or", "is", "isnt", "not", "then", "unless", "until", "loop", "yes",
+  "no", "on", "off", "of", "by", "where", "when", "case", "default",
+  "do", "function", "var", "void", "with", "const", "let", "enum",
+  "export", "import", "native", "own", "__hasProp", "__extends",
+  "__slice", "-=", "+=", "/=", "*=", "%=", "||=", "&&=", "?=", "<<=",
+  ">>=", ">>>=", "&=", "^=", "|=", "typeof", "delete", "&&",
+  "||", "<<", ">>", ">>>", "<=", ">=", "++", "--", "->", "=>", "::",
+  "==", "===", "..", "...")
 
 # Generic expression, to be populated later
 cs.expr = gg.named 'expr', gg.expr()
@@ -51,47 +51,45 @@ cs.whileLine = gg.sequence(
     gg.choice('while', 'until'),
     cs.expr,
     gg.if('when', cs.expr)
-).setBuilder (x) -> { invert: x[0]=='until', cond:x[1], guard:x[2] }
+).setBuilder (x) ->
+    { cond, invert, guard } = x
+    if invert then cond = tree "!", cond
+    return tree [cond, guard]
 
 # block-prefix while/until statement
 cs.while = gg.sequence(
     cs.whileLine, cs.block
 ).setBuilder (x) ->
-    [w, body] = x
-    tree "While", w.cond, w.invert, w.guard, body
+    [[cond, guard], body] = x
+    tree "While", cond, guard, body
 
 # block-prefix loop statement
 cs.loop = gg.sequence('loop', cs.block).setBuilder (x) ->
-    tree "While", (tree 'True'), false, x[1]
+    tree "While", (tree 'True'), x[1]
 
 # for ... in/of ... when ... by ..., shared by block-prefix and suffix forms
 cs.forLine = gg.sequence(
-    "for", gg.maybe "all", gg.list(cs.expr, ','),
+    "for", gg.maybe "own", gg.list(cs.expr, ','),
     gg.choice("in", "of"),
     cs.expr,
     gg.choice(
         gg.sequence(
             "when", cs.expr, gg.if("by", cs.expr)
-        ).setBuilder( (x) -> when: x[1], by: x[2] ),
+        ).setBuilder( (x) -> guard: x[1], step: x[2] ),
         gg.sequence(
             "by", cs.expr, gg.if("when", cs.expr)
-        ).setBuilder( (x) -> when: x[2], by: x[1] )
+        ).setBuilder( (x) -> guard: x[2], step: x[1] )
     )
 ).setBuilder (x) ->
-    r = { }
-    [ _, r.all, r.vars, r.op, r.collection, r.deco ] = x
-    return gg.fail if r.op=='of' and r.deco.by
-    return gg.fail unless 1 <= r.vars.length <= 2
-    return tree(
-        "For", r.all=='all', r.vars, r.op=='of',
-        r.collection, r.deco.when, r.deco.by
-    )
+    [ _, own, vars, op, collection, { guard, step} ] = x
+    return gg.fail if op=='of' and step
+    return gg.fail unless 1 <= vars.length <= 2
+    return [ op, vars, collection, guard, step ]
 
 # block-prefix for statement
 cs.for = gg.sequence(cs.forLine, cs.block).setBuilder (x) ->
     [t, body] = x
-    t.push body
-    return t
+    return tree t..., body
 
 # then ... or block, shared by if and switch statements
 cs.thenLineOrBlock = gg.choice(
@@ -105,7 +103,7 @@ cs.switch = gg.sequence(
     gg.list(
         gg.sequence(
             "when", gg.list(cs.expr, ','), cs.thenLineOrBlock
-        ).setBuilder (x) -> [x[1], x[2]]
+        ).setBuilder(1, 2)
     ),
     gg.if("else", cs.lineOrBlock),
     gg.dedent
@@ -125,30 +123,39 @@ cs.class = gg.sequence(
     "class", cs.expr,
     gg.if("extends", cs.expr),
     gg.maybe cs.block
-).setBuilder (x) -> tree 'Class', x[1], x[2], x[3]
+).setBuilder (x) ->
+    [_, className, ancestor, block ] = x
+    tree 'Class', className, ancestor, block
+
+# read an identifier, but return it as a string
+cs.idAsString = gg.wrap(gg.id).setBuilder((x) -> tree 'String', x[0])
 
 # @ and @field expressions
 cs.at = gg.sequence(
-    "@", gg.maybe [gg.noSpace, gg.id]
+    "@", gg.maybe(
+        gg.sequence(gg.noSpace, cs.idAsString).setBuilder(1)
+    )
 ).setBuilder (x) ->
-    if x[1] then tree 'Accessor', (tree 'This'), x[1][1]
-    else tree 'This'
+    [ field ] = x
+    if field then tree 'Accessor', (tree 'This'), field else tree 'This'
 
 # Single function call argument. splats "..." are authorized only after
 # parameters and arguments, in order to avoid confusion with slices.
 cs.exprOrSplat = gg.sequence(
     cs.expr, gg.maybe "..."
-).setBuilder (x) -> if x[1] then tree 'Splat', x[0] else x[0]
+).setBuilder (x) ->
+    [expr, splat] = x
+    if splat then tree 'Splat', expr else expr
 
 # function args with explicit parentheses
 cs.argumentsInParentheses = gg.sequence(
     gg.noSpace, '(', gg.list(cs.exprOrSplat, ',', "canBeEmpty"), ')'
-).setBuilder 2
+).setBuilder(2)
 
 # function args without parentheses
 cs.argumentsWithoutParentheses = gg.sequence(
     gg.space, gg.list(cs.exprOrSplat, ',')
-).setBuilder 1
+).setBuilder(1)
 
 # function args
 cs.arguments = gg.choice(
@@ -158,7 +165,9 @@ cs.arguments = gg.choice(
 
 # super invocation, with or without arguments
 cs.super = gg.sequence("super", gg.maybe cs.arguments).setBuilder (x) ->
-    tree 'Call', 'super',  x[1] or [tree 'Splat', (tree 'Literal', 'arguments')]
+    [_, args] = x
+    args |= tree 'Id', arguments
+    tree 'Call', (tree 'Super'),  args
 
 # expressions starting with parentheses: normal parentheses and lambdas
 cs.parentheses = gg.sequence(
@@ -168,15 +177,20 @@ cs.parentheses = gg.sequence(
         ['=>', cs.lineOrBlock],
         gg.one
     )
-).setBuilder (x) ->
-    [_, content, _, glyphAndCode] = x
-    if glyphAndCode
-        [glyph, code] = glyphAndCode
-        tag = if glyph=='->' then 'Function' else 'BoundFunction'
-        return tree tag, content, code
-    else if content.length != 1 # TODO: forbid splats?
+)
+.setBuilder (x) ->
+    [_, insideParens, _, optFunctionPart] = x
+    if optFunctionPart
+        # TODO: check that there are only parameters insideParens
+        [arrow, body] = optFunctionPart
+        boundFunction = (arrow=='=>')
+        [g, code] = optFunctionPart
+        if arrow=='->' then return tree 'Function', insideParens, body
+        else return tree 'BoundFunction', insideParens, body
+    else if insideParens.length == 1 # TODO: forbid splats?
+        return insideParens[0]
+    else
         return gg.fail
-    else return content[0]
 
 # accessor suffix.
 # TODO: handle slices
@@ -193,11 +207,10 @@ cs.bracketAccessor = gg.sequence(
     if rest then [op, b] = rest; return [ a, op, b ]
     else return [ a ]
 
-# object.field
-cs.dotAccessor = gg.sequence(
-    ".", gg.choice(gg.id, gg.anyKeyword)
-).setBuilder 1
+cs.field = gg.choice(gg.id, gg.anyKeyword)
 
+# object.field
+cs.dotAccessor = gg.sequence(".", cs.field).setBuilder 1
 
 optionalNewlines = # helper for class MultiLine
     gg.list(gg.choice(gg.indent, gg.dedent, gg.newline), null, 'canbeempty')
@@ -292,78 +305,100 @@ cs.primary = gg.named 'primary-expr', gg.choice(
 cs.expr.setPrimary cs.primary
 
 # helpers for operator declarations
+# tree "Op" operators:
+# +  -  ++  --  *  /  %  <<  >>  >>>
+# !=  ==  <  >  <=  >=
+# &&  ||  &  |  ^
+# in  of  instanceof  !in  !of  !instanceof
 
-prefix = (op, prec, builder) ->
-    if not builder?
-        builder = op
-    if typeof builder is 'string'
-        tag = builder; builder = (_, a) -> tree tag, a
-    cs.expr.addPrefix {parser:op, prec, builder}
 
-infix  = (op, prec, assoc, builder) ->
-    if not builder?
-        builder = op
-    if typeof builder is 'string'
-        tag = builder; builder = (a, _, b) -> tree tag, a, b
-    cs.expr.addInfix { parser:op, prec, assoc: assoc ? 'left', builder }
+# These functors automate the generation of builders
+# based on tree().
+# This musn't be done in GrammarGenerator, as
+# GG doesn't and shouldn't depend on tree.
 
-suffix = (op, prec, builder) ->
-    if not builder? and typeof op is 'string'
-        builder = op
-    if typeof builder is 'string'
-        tag = builder; builder = (a, _) -> tree tag, a
-    cs.expr.addSuffix {parser:op, prec, builder}
+prefix = (r) ->
+    {parser, builder} = r
+    if not builder? and typeof parser is 'string'
+        r.builder = (_,e) -> tree 'Op', parser, e
+    else if typeof builder is 'string'
+        r.builder = (_,e) -> tree 'Op', builder, e
+    cs.expr.addPrefix r
 
-# Existential
-suffix [gg.noSpace, '?'], 190, 'Existence'
+infix = (r) ->
+    {parser, builder} = r
+    if not builder? and typeof parser is 'string'
+        r.builder = (a,_,b) -> tree 'Op', parser, a, b
+    else if typeof builder is 'string'
+        r.builder = (a,_,b) -> tree 'Op', builder, a, b
+    cs.expr.addInfix r
+
+suffix = (r) ->
+    {parser, builder} = r
+    if not builder? and typeof parser is 'string'
+        r.builder = (e,_) -> tree 'Op', parser, e
+    else if typeof builder is 'string'
+        r.builder = (e,_) -> tree 'Op', builder, e
+    cs.expr.addSuffix r
+
+suffix parser:[gg.noSpace, '?'], prec:190, builder:'?'
 
 # Default '?' infix op
-infix [gg.space, '?'], 80, 'left', 'Default'
+infix  parser:[gg.space, '?'],         prec:80,  assoc:'left', builder:'?'
+infix  parser:gg.choice('is',   '=='), prec:110, assoc:'left', builder:'=='
+infix  parser:gg.choice('isnt', '!='), prec:110, assoc:'left', builder:'!='
+infix  parser:gg.choice('and',  '&&'), prec:100, assoc:'left', builder:'&&'
+infix  parser:gg.choice('or',   '||'), prec:90,  assoc:'left', builder:'||'
+prefix parser:gg.choice('not',  '!'),  prec:180, assoc:'left', builder:'!'
+suffix parser:'++', prec:180, builder:'++suffix'
+suffix parser:'--', prec:180, builder:'--suffix'
 
-infix  'is',   110, 'left', '=='
-infix  'isnt', 110, 'left', '!='
-infix  'and',  110, 'left', '&&'
-infix  'or',   110, 'left', '||'
-prefix 'not',  180, '!'
+# Disabled for now, Node.coffee flattens binary trees to generate comparison chains:
 
-suffix '++', 180, '++suffix'
-suffix '--', 180, '--suffix'
+# cs.comparators = gg.choice(
+#     '<', '>', '<=', '>=', '==', '!=',
+#     gg.wrap('is').setBuilder(->'=='),
+#     gg.wrap('isnt').setBuilder(->'!=')
+# )
 
+# infix parser:cs.comparators, prec:130, assoc:'flat', builder:(operands, operators) ->
+#     print "operators = #{operators}\n"
+#     print "operands = #{operands}\n"
+#     pairs = (tree 'op', operators[i], operands[i], operands[i+1] for i in [0...operators.length])
+#     if pairs.length==1 then pairs[0]
+#     else tree 'op', '&&', pairs...
+
+# Operators whose concrete syntax names match AST 'Op' tag.
 regularOperators = [
     # 190: suffix '?'
-    [ prefix, [180], '+', '-', '!', '!!', '~', '++', '--' ],
-    [ infix,  [170], '*', '/', '%' ],
-    [ infix,  [160], '+', '-' ],
-    [ infix,  [150], '<<', '>>', '>>>' ],
-    [ infix,  [140], '&', '|', '^' ],
-    [ infix,  [130], '<=', '<', '>', '>=' ], # TODO convert into chainable operators
-    [ prefix, [120], 'delete', 'instanceof', 'typeof', 'new', 'throw' ],
-    [ infix,  [110], '==', '!=' ], # plus aliases 'is', 'isnt' TODO and chaining
-    [ infix,  [100], '&&' ], # plus alias 'and'
-    [ infix,   [90], '||' ], # plus alias 'or'
+    [ prefix, {prec:180}, '+', '-', '!', '~', '++', '--' ],
+    [ infix,  {prec:170}, '*', '/', '%' ],
+    [ infix,  {prec:160}, '+', '-' ],
+    [ infix,  {prec:150}, '<<', '>>', '>>>' ],
+    [ infix,  {prec:140}, '&', '|', '^' ],
+    [ infix,  {prec:130}, '<=', '<', '>', '>=' ], # TODO convert into chainable operators
+    [ infix,  {prec:120}, 'instanceof', 'in', 'of' ], # TODO check prec
+    [ prefix, {prec:120}, 'delete', 'typeof', 'new', 'throw' ], # TODO not operators?
     # 80: infix '?', surrounded by spaces
-    [ infix, [70, 'right'], '=', '-=', '+=', '/=', '*=', '%=', '||=', '&&=', '?='],
+    [ infix, {prec:70, assoc:'right'}, '=', '-=', '+=', '/=', '*=', '%=', '||=', '&&=', '?='],
 ]
 
-parseRegularOperatorsLists = ->
-    for [f, rest, firsts...] in regularOperators
-        for first in firsts
-            f(first, rest...)
+for [f, r, parsers...] in regularOperators
+    for parser in parsers
+        r2 = { parser }; r2[k] = v for k, v of r
+        f r2
 
-parseRegularOperatorsLists()
-
-prefix '->', 10, (_, body) -> tree "Function", [], body
-
-suffix cs.arguments,       30, (f, args) -> tree "Call", f, args, false
-suffix cs.whileLine,       20, (x, w) -> tree "While", w.cond, w.invert, w.guard, [x]
-suffix cs.dotAccessor,     90, (x, i) -> tree "Accessor", x, tree "Value", i
-suffix cs.bracketAccessor, 90, (x, i) ->
+prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], body
+suffix parser:cs.arguments,   prec:30, builder:(f, args) -> tree "Call", f, args
+suffix parser:cs.whileLine,   prec:20, builder:(x, w) -> tree "While", w[0], w[1], [x]
+suffix parser:cs.dotAccessor, prec:90, builder:(x, i) -> tree "Accessor", x, tree "Value", i
+suffix parser:cs.bracketAccessor, prec:90, builder:(x, i) ->
     [ a, op, b ] = i
     return tree "Accessor", x, a unless op
     return tree "RangeAccessor", x, op, a, b
 
-infix 'if',     60, 'right', (a,_,b) -> tree 'If', b, a
-infix 'unless', 60, 'right', (a,_,b) -> tree 'If', (tree '!', b), a
+infix parser:'if',     prec:60, assoc:'right', builder:(a,_,b) -> tree 'If', b, [a]
+infix parser:'unless', prec:60, assoc:'right', builder:(a,_,b) -> tree 'If', (tree 'Op', '!', b), [a]
 
 # main parsing function
 cs.parse = (parser, src) ->
@@ -381,4 +416,3 @@ cs.parse = (parser, src) ->
 for name, p of cs
     if p instanceof gg.Parser
         gg.named "cs."+name, p
-
