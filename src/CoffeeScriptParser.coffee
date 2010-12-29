@@ -389,7 +389,7 @@ for [adder, template, parsers...] in regularOperators
         descr = { parser }; descr[k] = v for k, v of template
         adder descr
 
-prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], body
+prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], [body]
 suffix parser:cs.arguments,   prec:30, builder:(f, args) -> tree "Call", f, args
 suffix parser:cs.whileLine,   prec:20, builder:(x, w) -> tree "While", w[0], w[1], [x]
 suffix parser:cs.dotAccessor, prec:90, builder:(x, i) -> tree "Accessor", x, tree "Value", i

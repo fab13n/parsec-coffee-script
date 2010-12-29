@@ -38,6 +38,18 @@ src.lambdas = """
     -> meh
     (x) -> (y) -> curry
 """
+ast.lambdas = [
+    tree 'Function', [tree 'Id', 'x'], [tree 'Id', 'x']
+    tree 'Function',
+        [(tree 'Id', 'x'), (tree 'Id', 'y')],
+        [tree 'Op', '+',
+            (tree 'Id', 'x'),
+            (tree 'Id', 'y')]
+    tree 'Function', [ ], [tree 'Id', 'meh']
+    tree 'Function', [tree 'Id', 'x'],
+        [tree 'Function', [tree 'Id', 'y'],
+            [tree 'Id', 'curry']]]
+
 
 # super invocations
 src.super = """
