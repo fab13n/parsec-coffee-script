@@ -10,11 +10,14 @@ equal = (a,b) ->
         return false unless b instanceof Array
         return false unless a.length == b.length
         for i in [0...a.length]
-            return false unless a[i] == b[i]
+            return false unless equal(a[i], b[i])
         return true
     else if a instanceof Tree
         return a.tag==b.tag and equal(a.children, b.children)
-    else return a==b
+    else unless a instanceof Object or b instanceof Object
+        return a.toString() == b.toString() # settle string/number type mismatches
+    else
+        throw new Error "invalid object in tree"
 
 exports.equal=equal
 

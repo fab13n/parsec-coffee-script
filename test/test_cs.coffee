@@ -46,6 +46,18 @@ src.super = """
     super(1,2,3)
 """
 
+ast.super = [
+    tree 'Super'
+    tree 'Call', (tree 'Super'), [
+        (tree 'Number', 1)
+        (tree 'Number', 2)
+        (tree 'Number', 3) ]
+    tree 'Call', (tree 'Super'), [
+        (tree 'Number', 1)
+        (tree 'Number', 2)
+        (tree 'Number', 3) ] ]
+
+
 # as for functions, no space before args in parentheses
 src.fail_super = "super (1,2)"
 
@@ -180,15 +192,17 @@ src.cmp1 = '''
 '''
 
 src.cmp2 = '''
-    x<y<z
+    w<x<y<z
 '''
 
 ast.cmp2 = [
     (tree 'Op', '<',
         (tree 'Op', '<',
-            (tree 'id', 'x'),
-            (tree 'id', 'y')),
-        (tree 'id', 'z')) ]
+            (tree 'Op', '<',
+                (tree 'Id', 'w'),
+                (tree 'Id', 'x')),
+            (tree 'Id', 'y')),
+        (tree 'Id', 'z')) ]
 
 if process.argv.length>0
     used_regex = { }
@@ -218,6 +232,8 @@ for name, x of src
     if (a=ast[name])
         astFailed = not astEqual a, t
         hasFailed ||= astFailed
+        if (a==t) != (a.toString()==t.toString())
+            print "\nEquality test failed!!!\n"
 
     if hasFailed and shouldFail
         print "\n#{name} input:\n#{x}\n\nCompilation of #{name} failed, as expected\n"

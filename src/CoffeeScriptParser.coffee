@@ -166,8 +166,9 @@ cs.arguments = gg.choice(
 # super invocation, with or without arguments
 cs.super = gg.sequence("super", gg.maybe cs.arguments).setBuilder (x) ->
     [_, args] = x
-    args |= tree 'Id', arguments
-    tree 'Call', (tree 'Super'),  args
+    if args then tree 'Call', (tree 'Super'),  args
+    else tree 'Super'
+
 
 # expressions starting with parentheses: normal parentheses and lambdas
 cs.parentheses = gg.sequence(
@@ -278,8 +279,8 @@ cs.interpString = gg.sequence(
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
 cs.primary = gg.named 'primary-expr', gg.choice(
-    (gg.wrap gg.number).setBuilder (x) -> tree 'num', x
-    (gg.wrap gg.id)    .setBuilder (x) -> tree 'id', x
+    (gg.wrap gg.number).setBuilder (x) -> tree 'Number', x
+    (gg.wrap gg.id)    .setBuilder (x) -> tree 'Id', x
     #gg.regexp,
     cs.string,
     cs.interpString,
@@ -383,10 +384,10 @@ regularOperators = [
     [ infix, {prec:70, assoc:'right'}, '=', '-=', '+=', '/=', '*=', '%=', '||=', '&&=', '?='],
 ]
 
-for [f, r, parsers...] in regularOperators
+for [adder, template, parsers...] in regularOperators
     for parser in parsers
-        r2 = { parser }; r2[k] = v for k, v of r
-        f r2
+        descr = { parser }; descr[k] = v for k, v of template
+        adder descr
 
 prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], body
 suffix parser:cs.arguments,   prec:30, builder:(f, args) -> tree "Call", f, args

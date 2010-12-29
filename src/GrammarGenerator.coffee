@@ -751,7 +751,7 @@ exports.Expr = class Expr extends Parser
         if candidates
             for p in candidates
                 break if p.prec < prec
-                break if p.assoc == 'right' and p.prec == prec
+                break if p.assoc == 'left' and p.prec == prec
                 op = p.parser.call lx
                 return { p, op } if op != fail
         log("nothing found\n")
