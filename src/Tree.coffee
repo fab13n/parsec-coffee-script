@@ -21,6 +21,8 @@ equal = (a,b) ->
         return a.tag==b.tag and equal(a.children, b.children)
     else if not a? and not b?
         return true # don't make a difference between null/undefined / length equality isnt compatible with this
+    else if not a? or not b?
+        return false
     else unless a instanceof Object or b instanceof Object
         return a.toString() == b.toString() # settle string/number type mismatches
     else

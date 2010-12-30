@@ -62,7 +62,31 @@ src.lambda2 = '''
      f()
 '''
 
-src.lambda3 = '->'
+ast.lambda2 = [
+    (tree 'Function', [], []),
+    (tree 'Function', [tree 'Id', 'a'], []),
+    (tree 'Function', [], []),
+    (tree 'Function', [], [tree 'Call', (tree 'Id', 'b'), []]),
+    (tree 'Function', [], [
+        (tree 'Call', (tree 'Id', 'c'), []),
+        (tree 'Call', (tree 'Id', 'd'), [])]),
+    (tree 'Function', [tree 'Id', 'e'],
+        [(tree 'Call', (tree 'Id', 'f'), [])])]
+
+src.lambda3 = '''
+    first = (a, b...) -> a
+    last  = (a..., b) -> b
+'''
+
+ast.lambda3 = [
+    (tree 'Op', '=',
+        (tree 'Id', 'first'),
+        (tree 'Function', [(tree 'Id', 'a'), (tree 'Id', 'b')], [tree 'Id', 'a'], 1)),
+    (tree 'Op', '=',
+        (tree 'Id', 'last'),
+        (tree 'Function', [(tree 'Id', 'a'), (tree 'Id', 'b')], [tree 'Id', 'b'], 0))]
+
+src.fail_lambda1 = '(a, b..., c...) -> "at most one splatted arg"'
 
 # super invocations
 src.super = """

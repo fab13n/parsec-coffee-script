@@ -193,9 +193,9 @@ cs.parentheses = gg.sequence(
             if param.tag=='Id'
                 continue
             else if param.tag=='Op' and param.children[0]=='...' and param.children[1].tag=='Id'
-                if splatIdx then return fail # multiple splats
+                if splatIdx then return gg.fail # multiple splats
                 else splatIdx = i; insideParens[i]=param.children[1]
-            else return fail # invalid parameter
+            else return gg.fail # invalid parameter
 
         [arrow, body] = optFunctionPart
         boundFunction = (arrow=='=>')
