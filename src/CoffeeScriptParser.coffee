@@ -24,9 +24,14 @@ cs.expr = gg.named 'expr', gg.expr()
 cs.line = gg.named 'line', gg.list(cs.expr, ';')
 
 # Block of indentation-delimited expressions
-cs.block = gg.sequence(
-    gg.indent, gg.list(cs.expr, gg.choice(";", gg.newline)), gg.dedent
-).setBacktrack(true).setBuilder 1
+cs.nonEmptyBlock = gg.sequence(
+    gg.indent,
+    gg.list(cs.expr, gg.choice(";", gg.newline)),
+    gg.dedent
+).setBuilder(1)
+
+# Block of indentation-delimited expressions
+cs.block = gg.maybe(cs.nonEmptyBlock, [ ])
 
 # Either a line or a block
 cs.lineOrBlock = gg.named 'lineOrBlock', gg.choice(cs.block, cs.line)
@@ -145,7 +150,7 @@ cs.exprOrSplat = gg.sequence(
     cs.expr, gg.maybe "..."
 ).setBuilder (x) ->
     [expr, splat] = x
-    if splat then tree 'Splat', expr else expr
+    if splat then tree 'Op', '...', expr else expr
 
 # function args with explicit parentheses
 cs.argumentsInParentheses = gg.sequence(
@@ -172,7 +177,7 @@ cs.super = gg.sequence("super", gg.maybe cs.arguments).setBuilder (x) ->
 
 # expressions starting with parentheses: normal parentheses and lambdas
 cs.parentheses = gg.sequence(
-    '(', gg.list(cs.exprOrSplat, ','), ')',
+    '(', gg.list(cs.exprOrSplat, ',', 'canbeempty'), ')',
     gg.choice(
         ['->', cs.lineOrBlock],
         ['=>', cs.lineOrBlock],
@@ -182,18 +187,39 @@ cs.parentheses = gg.sequence(
 .setBuilder (x) ->
     [_, insideParens, _, optFunctionPart] = x
     if optFunctionPart
-        # TODO: check that there are only parameters insideParens
+
+        # Check param validity, find splat index if appropriate
+        for param, i in insideParens
+            if param.tag=='Id'
+                continue
+            else if param.tag=='Op' and param.children[0]=='...' and param.children[1].tag=='Id'
+                if splatIdx then return fail # multiple splats
+                else splatIdx = i; insideParens[i]=param.children[1]
+            else return fail # invalid parameter
+
         [arrow, body] = optFunctionPart
         boundFunction = (arrow=='=>')
         [g, code] = optFunctionPart
-        if arrow=='->' then return tree 'Function', insideParens, body
-        else return tree 'BoundFunction', insideParens, body
+        Tag = if arrow=='->' then 'Function' else 'Boundfunc'
+        if splatIdx? then return tree Tag, insideParens, body, splatIdx
+        else return tree Tag, insideParens, body
     else if insideParens.length == 1 # TODO: forbid splats?
         return insideParens[0]
     else
         return gg.fail
 
-# accessor suffix.
+
+# expressions starting with parentheses: normal parentheses and lambdas
+cs.paramlessFunc = gg.sequence(
+    gg.choice('->','=>'),
+    cs.lineOrBlock
+)
+.setBuilder (x) ->
+    [ arrow, body ] = x
+    Tag = if arrow=='->' then 'Function' else 'Boundfunc'
+    return tree Tag, [ ], body
+
+# Accessor suffix.
 # TODO: handle slices
 cs.bracketAccessor = gg.sequence(
     gg.noSpace, '[', cs.expr,
@@ -300,6 +326,7 @@ cs.primary = gg.named 'primary-expr', gg.choice(
     cs.class,
     cs.super,
     cs.parentheses,
+    cs.paramlessFunc,
     cs.at
 )
 
@@ -389,7 +416,7 @@ for [adder, template, parsers...] in regularOperators
         descr = { parser }; descr[k] = v for k, v of template
         adder descr
 
-prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], [body]
+#prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], [body]
 suffix parser:cs.arguments,   prec:30, builder:(f, args) -> tree "Call", f, args
 suffix parser:cs.whileLine,   prec:20, builder:(x, w) -> tree "While", w[0], w[1], [x]
 suffix parser:cs.dotAccessor, prec:90, builder:(x, i) -> tree "Accessor", x, tree "Value", i
@@ -404,7 +431,7 @@ infix parser:'unless', prec:60, assoc:'right', builder:(a,_,b) -> tree 'If', (tr
 # main parsing function
 cs.parse = (parser, src) ->
     if not src?
-        src=parser; parser = cs.block
+        src=parser; parser = cs.nonEmptyBlock
     else if typeof parser == 'string' and cs[parser]?
         parser = cs[parser]
     else unless parser instanceof gg.Parser

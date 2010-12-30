@@ -102,7 +102,7 @@ exports.Parser = class Parser
 
         if x==fail
             log2("|  ") for _ in [0..callNest]
-            log2("- #{@toShortString()} failed.\n")
+            log2("- #{@toShortString()} failed on #{lx.peek().getKey()}.\n")
             callNest--
             return fail
         else
@@ -139,7 +139,7 @@ exports.Parser = class Parser
 
     reindex: ->
         @dirty=false
-        print "<reindexed '#{@toShortString()}', keys = #{@keys2string()}>\n"
+        #print "<reindexed '#{@toShortString()}', keys = #{@keys2string()}>\n"
         return @
 
     # DEPRECATED?
@@ -459,13 +459,14 @@ exports.maybe = (x...) -> new Maybe x...
 exports.Maybe = class Maybe extends Parser
     typename: 'Maybe'
 
-    constructor: (parser) ->
+    constructor: (parser, defaultval) ->
         super
-        @parser = lift parser
+        @parser  = lift parser
+        @default = defaultval ? false
 
     parse: (lx) ->
         result = @parser.call(lx)
-        if result==fail then return false else return result
+        return (if result==fail then @default else result)
 
     toString: -> @name ? "Maybe(#{@parser})"
 
@@ -535,6 +536,7 @@ exports.Wrap = class Wrap extends Parser
 #-------------------------------------------------------------------------------
 # If(triggerParser, parser, whenNotTriggered):
 # when the triggerParser fails, the value in whenNotTriggered
+# No keys: it succeeds if trigger doesn't parse.
 #-------------------------------------------------------------------------------
 exports.if = (x...) -> new If x...
 exports.If = class If extends Parser
@@ -542,22 +544,24 @@ exports.If = class If extends Parser
         super
         @trigger = lift trigger
         @parser  = lift parser
-        @keys    = @trigger.keys
+        @keys    = false
         @trigger.addListener @
 
     reindex: ->
         return @ unless @dirty
         @trigger.reindex()
-        @keys = @trigger.keys
+        @keys = false
         return super
 
     parse: (lx) ->
+        print "TRIGGER #{@trigger}\n"
         if @trigger.call(lx) != fail
+            print "SUCCESS\n"
             bookmark = lx.save()
             result = @parser.call lx
             if result == fail then lx.restore bookmark; return fail
             else return result
-        else return @whenNotTriggered
+        else print "FAILURE\n"; return @whenNotTriggered
 
     toString: -> @name ? "If(#{@trigger},  #{@parser}, #{@whenNotTriggered})"
 

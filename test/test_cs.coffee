@@ -32,13 +32,13 @@ src.calls = """
 src.fail_call = "foo (1,2,3)"
 
 # anonymous functions
-src.lambdas = """
+src.lambda1 = """
     (x) -> x
     (x, y) -> x+y
     -> meh
     (x) -> (y) -> curry
 """
-ast.lambdas = [
+ast.lambda1 = [
     tree 'Function', [tree 'Id', 'x'], [tree 'Id', 'x']
     tree 'Function',
         [(tree 'Id', 'x'), (tree 'Id', 'y')],
@@ -50,6 +50,19 @@ ast.lambdas = [
         [tree 'Function', [tree 'Id', 'y'],
             [tree 'Id', 'curry']]]
 
+src.lambda2 = '''
+  ->
+  (a) ->
+  () ->
+  -> b()
+  ->
+     c()
+     d()
+  (e) ->
+     f()
+'''
+
+src.lambda3 = '->'
 
 # super invocations
 src.super = """
@@ -76,7 +89,20 @@ src.fail_super = "super (1,2)"
 src.splat = """
     f x...
     (x...) -> y
+    (a,b...,c) ->
 """
+
+ast.splat = [
+    tree 'Call', (tree 'Id', 'f'), [
+        tree 'Op', '...', (tree 'Id', 'x') ]
+    tree 'Function',
+        [tree 'Id', 'x']
+        [tree 'Id', 'y'], 0
+    tree 'Function', [
+        (tree 'Id', 'a')
+        (tree 'Id', 'b')
+        (tree 'Id', 'c') ], [ ], 1 ]
+
 
 # Splats not accepted except as args or params
 src.fail_splat = """
@@ -244,8 +270,9 @@ for name, x of src
     if (a=ast[name])
         astFailed = not astEqual a, t
         hasFailed ||= astFailed
-        if (a==t) != (a.toString()==t.toString())
-            print "\nEquality test failed!!!\n"
+        #if astEqual(a,t) != (a.toString()==t.toString())
+        #    print "\nEquality test failed for #{a} and #{t}!!!\n"
+    else astFailed = false
 
     if hasFailed and shouldFail
         print "\n#{name} input:\n#{x}\n\nCompilation of #{name} failed, as expected\n"
@@ -262,6 +289,7 @@ if log.length==0
     print "\nAll tests passed successfully\n"
 else
     n=0; (n++ for _ of src)
-    print "\n#{log.length} failures out of #{n}: #{log.join '\n'}\n"
+    print "\n#{log.length} failures out of #{n}:\n\n#{log.join '\n\n'}\n"
 
 #TODO: src finishing with a comment
+

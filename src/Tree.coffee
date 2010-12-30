@@ -8,12 +8,19 @@ exports.tree = (x...) -> new Tree x...
 equal = (a,b) ->
     if a instanceof Array
         return false unless b instanceof Array
-        return false unless a.length == b.length
+        # ignore null elements on the right
+        if a.length>b.length then [a, b]=[b, a]
+        if a.length<b.length
+            for i in [a.length...b.length]
+                return false if b.length?
+        # recursion on each element pair
         for i in [0...a.length]
             return false unless equal(a[i], b[i])
         return true
     else if a instanceof Tree
         return a.tag==b.tag and equal(a.children, b.children)
+    else if not a? and not b?
+        return true # don't make a difference between null/undefined / length equality isnt compatible with this
     else unless a instanceof Object or b instanceof Object
         return a.toString() == b.toString() # settle string/number type mismatches
     else
