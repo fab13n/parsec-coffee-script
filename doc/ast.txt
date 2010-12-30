@@ -1,0 +1,63 @@
+expr:
+	val | struct | op
+
+id:
+	tree 'Id', v:string
+
+val:
+	tree 'This'
+	tree 'Super',
+	tree 'True',
+	tree 'False',
+	tree 'Null',
+	tree 'Number', n:number
+	tree 'String', content:string
+	tree 'Regex',  content:string
+	tree 'Javascript', content:string
+
+struct:
+	tree 'Call', f:expr, args:expr_list
+	tree 'Return', expr
+	tree 'Try', block, exn:id?, catch:block?, finally:block?
+	tree 'While', condition:expr, block
+	tree 'For', for_op_name, id_list, set:expr, guard:expr?, step:expr?, block
+	tree 'Switch', expr, case_list, else:block?
+	tree 'Function',  params:id_list, block, splat_idx:number?
+	tree 'Boundfunc', params:id_list, block, splat_idx:number?
+	tree 'Array', expr_list
+	tree 'Object', obj_entry_list
+	tree 'Break',
+	tree 'Continue',
+	tree 'Access', obj:expr, key:expr
+	tree 'Range', array:expr, begin:expr, range_op_name, end:expr
+	tree 'If', cond:expr, block
+
+op:
+	tree 'Op', unary_op_name, expr
+	tree 'Op', binary_op_name, expr, expr
+	tree 'Op', chain_op_name, expr, expr
+
+block:
+	list of expr
+
+case:
+    [ case:expr_list, block ]
+
+obj_entry:
+	[ key:string, value:expr ]
+
+for_op_name:
+	'in', 'of', 'own'
+
+range_op_name:
+	'..', '...'
+
+unary_op_name:
+	'!', '+', '-', '~', '?', '...', '++prefix', '--prefix', '++suffix', '--suffix'
+
+binary_op_name:
+	'+', '-', '*', '/', '%', '<<', '>>', '>>>', '&', '|', '^', '?', '&&', '||' 
+
+chain_op_name: 
+	'<=', '<', '>', '>=', '==', '!='
+
