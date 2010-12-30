@@ -16,16 +16,16 @@ val:
 	tree 'Javascript', content:string
 
 struct:
-	tree 'Call', f:expr, args:expr_list
+	tree 'Call', f:expr, args:expr*
 	tree 'Return', expr
 	tree 'Try', block, exn:id?, catch:block?, finally:block?
 	tree 'While', condition:expr, block
-	tree 'For', for_op_name, id_list, set:expr, guard:expr?, step:expr?, block
-	tree 'Switch', expr, case_list, else:block?
-	tree 'Function',  params:id_list, block, splat_idx:number?
-	tree 'Boundfunc', params:id_list, block, splat_idx:number?
-	tree 'Array', expr_list
-	tree 'Object', obj_entry_list
+	tree 'For', for_op_name, id*, set:expr, guard:expr?, step:expr?, block
+	tree 'Switch', expr, case*, else:block?
+	tree 'Function',  params:id*, block, splat_idx:number?
+	tree 'Boundfunc', params:id*, block, splat_idx:number?
+	tree 'Array', expr*
+	tree 'Object', obj_entry*
 	tree 'Break',
 	tree 'Continue',
 	tree 'Access', obj:expr, key:expr
@@ -38,10 +38,10 @@ op:
 	tree 'Op', chain_op_name, expr, expr
 
 block:
-	list of expr
+	expr*
 
 case:
-    [ case:expr_list, block ]
+    [ case:expr*, block ]
 
 obj_entry:
 	[ key:string, value:expr ]
