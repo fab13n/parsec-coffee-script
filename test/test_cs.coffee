@@ -191,18 +191,36 @@ src.array = """
       c, d]
 """
 
-src.object = """
+src.object1 = """
 obj = { a:1; b:{c:1} }
 """
 
-src.indented_object = """
+src.object2 = """
 obj = {
     a:1
     b:2,
-      c:3
+    c:3
     d:{e:4; f:5}
 }
 """
+
+ast.object2 = [
+    tree 'Op', '=', (tree 'Id', 'obj'),
+        tree 'Object', [
+            [ 'a', (tree 'Number', 1) ]
+            [ 'b', (tree 'Number', 2) ]
+            [ 'c', (tree 'Number', 3) ]
+            [ 'd',  tree 'Object', [
+                [ 'e', (tree 'Number', 4) ]
+                [ 'f', (tree 'Number', 5) ]]]]]
+
+src.object3 = '''
+{
+    a: {
+        b: {
+            c:1
+        d:2 } } }
+'''
 
 src.operators = """
     a + b * c
@@ -266,54 +284,78 @@ ast.cmp2 = [
             (tree 'Id', 'y')),
         (tree 'Id', 'z')) ]
 
-if process.argv.length>0
-    used_regex = { }
-    listed_tests = { }
-    for name of src
-        for regex in process.argv
-            if name.match regex
-                listed_tests[name] = true
-                used_regex[regex]  = true
-                break
-    for regex in process.argv
-        unless used_regex[regex]
-            print "Warning, unused regex '#{regex}'\n"
 
-log = [ ]
-logError = (msg)->
-    print "\n>>>>>>>>> ERROR: #{msg}\n"
-    log.push msg
+# Determine the set of test names to run
+# src: test suite
+# regexes: list of regexes, presumably passed from command line
+getTestsToRun = (src, regexes) ->
+    tests = { }
+    if regexes.length is 0
+        (tests[name] = true) for name of src
+    else
+        used_regexes = { }
+        for name of src
+            for regex in regexes
+                if name.match regex
+                    tests[name] = true
+                    used_regexes[regex]  = true
+                    break
+        for regex in regexes
+            unless used_regex[regex]
+                print "Warning, unused regex '#{regex}'\n"
+    return tests
 
-# Pass all tests in sequence
-for name, x of src
-    continue if listed_tests and not listed_tests[name]
+# Run one test.
+# name: name of the test. The test must fail iff the name starts with "fail_".
+# src:  source string of the test.
+# ast:  AST that must be produced as a result (optional).
+# logger: what to do if a test fails.
+runTest = (name, src, ast, logger) ->
+    logger ?= print
     print "\n***** Test #{name} *****\n"
-    t = cs.parse x
+    t = cs.parse src
     hasFailed  = t is gg.fail
     shouldFail = name.match /^fail_/
-    if (a=ast[name])
-        astFailed = not astEqual a, t
+    if ast?
+        astFailed = not astEqual ast, t
         hasFailed ||= astFailed
         #if astEqual(a,t) != (a.toString()==t.toString())
         #    print "\nEquality test failed for #{a} and #{t}!!!\n"
     else astFailed = false
 
     if hasFailed and shouldFail
-        print "\n#{name} input:\n#{x}\n\nCompilation of #{name} failed, as expected\n"
+        print "\n#{name} input:\n#{src}\n\nCompilation of #{name} failed, as expected\n"
+        return true
     else if astFailed and not shouldFail
-        logError "Failure, invalid tree for src.#{name}\nexp: #{ast[name]}\ngot: #{t}"
+        logger "Failure, invalid tree for src.#{name}\nexp: #{ast}\ngot: #{t}"
+        return false
     else if hasFailed and not shouldFail
-        logError "Failure, cannot parse src.#{name}"
+        logger "Failure, cannot parse src.#{name}"
+        return false
     else if not hasFailed and shouldFail
-        logError "Test #{name} should have failed"
+        logger "Test #{name} should have failed"
+        return false
     else if not hasFailed and not shouldFail
-        print "\n#{name} input:\n#{x}\n\n#{name} result:\n#{toIndentedString t}\n"
+        print "\n#{name} input:\n#{src}\n\n#{name} result:\n#{toIndentedString t}\n"
+        return true
 
-if log.length==0
-    print "\nAll tests passed successfully\n"
-else
-    n=0; (n++ for _ of src)
-    print "\n#{log.length} failures out of #{n}:\n\n#{log.join '\n\n'}\n"
+main = (args) ->
+
+    log = [ ]
+    logger = (msg) ->
+        print "\n>>>>>>>>> ERROR: #{msg}\n"
+        log.push msg
+
+    total = success = 0
+    for name of getTestsToRun(src, args)
+        total++
+        success++ if runTest name, src[name], ast[name], logger
+    if total == success
+        print "\nAll #{total} tests passed successfully\n"
+    else
+        print "\n#{total-success} failures out of #{total}:\n\n#{log.join '\n\n'}\n"
+
+main (process.argv)
 
 #TODO: src finishing with a comment
 
