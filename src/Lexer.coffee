@@ -27,7 +27,7 @@ NUMBER   = /^(0x[0-9a-fA-F]+)|(([0-9]+(\.[0-9]+)?|\.[0-9]+)(e[+\-]?[0-9]+)?)/
 #-------------------------------------------------------------------------------
 class Token
     constructor: (@t, @v, @i, @s) ->
-    getKey:   -> if @t=='keyword' then @t+"-"+@v else @t #TODO: temp hack
+    getCatcode: -> if @t=='keyword' then @t+"-"+@v else @t #TODO: temp hack
     toString: ->
         "#{@t}[#{@i}#{if @v then ":'#{@v}'" else ""}#{if @s then ' S' else ''}]"
 
@@ -525,6 +525,8 @@ exports.Stream = class Stream
         @index  = -1
         @currentIndentation = 0
 
+    eof: new Token 'eof'
+
     #---------------------------------------------------------------------------
     # Return the n-th next token, without consumming it.
     #
@@ -534,7 +536,7 @@ exports.Stream = class Stream
     peek: (n) ->
         n ?= 1
         # log  "? peek #{@tokens[@readIndex+n]}\n"
-        return @tokens[@index+n]
+        return @tokens[@index+n] or @eof
 
     #---------------------------------------------------------------------------
     # Return the n-th next token, remove all tokens up to it from token stream.
@@ -543,11 +545,11 @@ exports.Stream = class Stream
         n ?= 1
         result = @peek(n)
         for tok in @tokens[@index+1 .. @index+n]
-                log "> consumed #{tok}\n"
+                log ">>> consumed #{tok.t} #{tok.v ? ''}\n"
                 if (tok_t=tok.t) == 'indent' or tok_t == 'dedent'
                     @currentIndentation = tok.v
         @index += n
-        return result
+        return result or @eof
 
     #---------------------------------------------------------------------------
     # Return the indentation level of the n-th next token.

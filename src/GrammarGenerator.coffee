@@ -37,21 +37,21 @@ lift = exports.lift = (x) ->
 #
 # Internal structure:
 #
-# keys: Optional set of token keys with which this parser might start.
+# catcodes: Optional set of token catcodes with which this parser might start.
 # If there is a set, then it must be exhaustive:
 #
-#  * it is always OK for a parser to have @keys=false, although it might
+#  * it is always OK for a parser to have @catcodes=false, although it might
 #    make it inefficient, especially when used in a Choice combinator;
 #
 #  * it is OK for a parser to declare, say, "keyword-foo" as a key, but
 #    to fail with some token streams starting with keyword "foo";
 #
-#  * but it is an error for a parser to have a @keys set that doesn't
+#  * but it is an error for a parser to have a @catcodes set that doesn't
 #    include "keyword-foo" if there are some token streams starting with
 #    keyword "foo" that it might parse successfully.
 #
-#  * as a corollary, a parser with an empty set of keys (as opposed to
-#    no set at all, @keys==false), promizes never to succeed parsing
+#  * as a corollary, a parser with an empty set of catcodes (as opposed to
+#    no set at all, @catcodes==false), promizes never to succeed parsing
 #    anything. It might be the case for a parser in which we plan to
 #    add some children some time later.
 #
@@ -75,7 +75,8 @@ exports.Parser = class Parser
     constructor: ->
         @builder      ?= (x) -> x
         @transformers ?= [ ]
-        @keys         ?= false
+        @catcodes     ?= false
+        @epsilon      ?= false
         @listeners    ?= [ ]
         @backtrack    ?= true
         @id           ?= pid++
@@ -102,7 +103,7 @@ exports.Parser = class Parser
 
         if x==fail
             log2("|  ") for _ in [0..callNest]
-            log2("- #{@toShortString()} failed on #{lx.peek().getKey()}.\n")
+            log2("- #{@toShortString()} failed on #{lx.peek().getCatcode()}.\n")
             callNest--
             return fail
         else
@@ -139,7 +140,7 @@ exports.Parser = class Parser
 
     reindex: ->
         @dirty=false
-        #print "<reindexed '#{@toShortString()}', keys = #{@keys2string()}>\n"
+        #print "<reindexed '#{@toShortString()}', catcodes = #{@catcodes2string()}>\n"
         return @
 
     # DEPRECATED?
@@ -148,14 +149,14 @@ exports.Parser = class Parser
     # When a change is made to this parser, notify all parsers who
     # registered for update notifications.
     # Notification procedure:
-    # - a parent parser P's keys depend on its child parser C to determine its
-    #   keys, and a change in C's keys might cause a change in P's keys.
-    # - P informs C that it needs to be notified about keys changes, by
+    # - a parent parser P's catcodes depend on its child parser C to determine its
+    #   catcodes, and a change in C's catcodes might cause a change in P's catcodes.
+    # - P informs C that it needs to be notified about catcodes changes, by
     #   calling C.addListener(P).
-    # - C is subjected to an operation which changes its keys. It recomputes
-    #   its own keys, and notifies it listeners, including P.
-    # - P receives the notification, updates its keys in its implementation
-    #   of @notify; if its own keys have changed, it propagates the notification
+    # - C is subjected to an operation which changes its catcodes. It recomputes
+    #   its own catcodes, and notifies it listeners, including P.
+    # - P receives the notification, updates its catcodes in its implementation
+    #   of @notify; if its own catcodes have changed, it propagates the notification
     #   through a final supernotify().
     #
     # TODO: delay notification until the first parsing occurs, to avoid
@@ -191,11 +192,11 @@ exports.Parser = class Parser
 
     error: (msg) -> throw new Error @toString()+": ParsingError: "+msg
 
-    keys2string: ->
-        if @keys
-            "{ " + ("'#{k.replace /^keyword\-/, '!'}'" for k of @keys).join(", ") + " }"
+    catcodes2string: ->
+        if @catcodes
+            "{ " + ("'#{k.replace /^keyword\-/, '!'}'" for k of @catcodes).join(", ") + " }"
         else
-            "NOKEYS"
+            "NOCATCODES"
 
 
 #-------------------------------------------------------------------------------
@@ -227,14 +228,16 @@ exports.Const = class Const extends Parser
             @values = { }
             (@values[x]=true) for x in values
 
-        @keys = { }
+        @catcodes = { }
         if valueKeyed?
             if @t=='keyword' then @name='!'+values.join '-'
             else @name = @t + '-' + values.join '-'
-            (@keys[@t+'-'+v] = true) for v in values
+            (@catcodes[@t+'-'+v] = true) for v in values
         else
             @name = @t
-            @keys[@t] = true
+            @catcodes[@t] = true
+
+        print "created #{@} with catcodes #{@catcodes2string()}\n"
 
     parse: (lx) ->
         tok = lx.peek()
@@ -284,19 +287,20 @@ exports.Sequence = class Sequence extends Parser
         @children = lift child for child in children
         @dirty=true
 
-    firstNonEpsilonChild: ->
-        for c in @children
-            return c unless c instanceof EpsilonParser
-        return false
-
     reindex: ->
         return @ unless @dirty
-        fnec = @firstNonEpsilonChild()
-        if fnec
-            fnec.reindex()
-            @keys = fnec.keys
-        else
-            @keys=false # TODO: maybe sometimes { } ?
+        @catcodes = { }
+        @epsilon  = false
+        for child in @children
+            child.reindex()
+            c = child.catcodes
+            if c
+                (@catcodes[k] = true) for k of c
+                if child.epsilon then @epsilon=true else break
+            else
+                print "!!! sequence loses catcode because of #{child}\n"
+                @catcodes = false
+                break
         return super
 
     parse: (lx) ->
@@ -323,7 +327,7 @@ exports.Sequence = class Sequence extends Parser
 #-------------------------------------------------------------------------------
 # Choose between alternative parsers, according to the first token's key.
 #
-# Children parsers are sorted by keys.
+# Children parsers are sorted by catcodes.
 #
 #-------------------------------------------------------------------------------
 exports.choice = (x...) -> new Choice x...
@@ -337,12 +341,12 @@ exports.Choice = class Choice extends Parser
     # field unindexed:  key-less children, sorted by decreasing order.
     # field unindexedP: precedences of key-less children.
     # field default:    the optional keyless parser TODO UPDATE
-    # field unused:     parsers which are currently never used (they have zero keys)
-    #                   They might get new keys later, and notify the Choice combinator,
+    # field unused:     parsers which are currently never used (they have zero catcodes)
+    #                   They might get new catcodes later, and notify the Choice combinator,
     #                   which will then move them in @indexed or @unindexed.
     # field unusedP:    precedence of unused children.
     #
-    # TODO: structurate as Expr: by putting parsers and parsers metadata in s single record,
+    # TODO: structurate as Expr: by putting parsers and parsers metadata in a single record,
     #       by appending unindexed parser to every index,
     #       by keeping a list.
     #       if precedence is kept in list, it might be removed from indexes.
@@ -351,7 +355,7 @@ exports.Choice = class Choice extends Parser
         super
         @indexed    = { }
         @unindexed  = [ ]
-        @keys       = { }
+        @catcodes   = { }
         @indexedP   = { }
         @unindexedP = [ ]
         @unused     = [ ]
@@ -402,7 +406,7 @@ exports.Choice = class Choice extends Parser
             listP.splice i, 0, p
             list.splice  i, 0, x
 
-        # Reconstitute the lists of all childrens and precedences
+        # Reconstitute the lists of all children and precedences
         allChildren = @unused.concat @unindexed
         allPrecs    = @unusedP.concat @unindexedP
         for key, children of @indexed
@@ -412,30 +416,34 @@ exports.Choice = class Choice extends Parser
                 allPrecs.push precs[i]
 
         # reset indexes
-        @indexed  = { }; @unindexed  = [ ]; @unused  = [ ]; @keys = { }
+        @indexed  = { }; @unindexed  = [ ]; @unused  = [ ];
         @indexedP = { }; @unindexedP = [ ]; @unusedP = [ ];
+        @catcodes = { }; @epsilon    = false
 
         # reinsert in appropriate index
         for i in [0 ... allChildren.length]
             child = allChildren[i]
             prec  = allPrecs[i]
             child.reindex()
-            unless child.keys
+            @epsilon ||= child.epsilon
+            unless child.catcodes
                 insertWithPrec @unindexed, @unindexedP, child, prec
+                print "!!! choice loses catcodes because of #{child}\n"
+                @catcodes = false
             else
-                for key of child.keys
+                for key of child.catcodes
                     hasAtLeastOneKey = true # TODO: is there an emptiness test for objects?
                     parsers = (@indexed[key]  ?= [ ])
                     precs   = (@indexedP[key] ?= [ ])
                     insertWithPrec parsers, precs, child, prec
-                    @keys[key] = true if @keys
+                    @catcodes[key] = true if @catcodes
                 unless hasAtLeastOneKey
                     insertWithPrec @unused, @unusedP, child, prec
         return super
 
     parse: (lx) ->
         log "parse Choice on #{lx.peek()}\n"
-        nextTokenKey = lx.peek().getKey()
+        nextTokenKey = lx.peek().getCatcode()
         parsers = @indexed[nextTokenKey]
         if parsers then for p in parsers
             result = p.call lx
@@ -471,6 +479,18 @@ exports.Maybe = class Maybe extends Parser
     toString: -> @name ? "Maybe(#{@parser})"
 
 #-------------------------------------------------------------------------------
+# Common usage pattern for gg.maybe()
+#-------------------------------------------------------------------------------
+exports.if = (trigger, primary, whenNotTriggered) ->
+    exports.maybe(
+        exports.sequence(
+            trigger, primary
+        ).setBuilder(1),
+        whenNotTriggered
+    )
+
+
+#-------------------------------------------------------------------------------
 # TODO: maybe terminators don't make sense anymore
 #-------------------------------------------------------------------------------
 exports.list = (x...) -> new List x...
@@ -479,15 +499,16 @@ exports.List = class List extends Parser
         super
         @primary    = lift primary
         @separator  = lift separator if separator?
-        # TODO: is it a good thing to let it propagate keys?
-        @keys       = @primary.keys
+        # TODO: is it a good thing to let it propagate catcodes?
+        @catcodes       = @primary.catcodes
         @primary.addListener @
         @dirty = true
 
     reindex: ->
         return @ unless @dirty
-        if @canBeEmpty then @keys=false
-        else @primary.reindex(); @keys = @primary.keys
+        @primary.reindex()
+        @epsilon = @canBeEmpty or @primary.epsilon
+        @catcodes = @primary.catcodes # can be false
         return super
 
     parse: (lx) ->
@@ -515,7 +536,7 @@ exports.Wrap = class Wrap extends Parser
         super
         @setParser parser if parser
 
-    notify: -> @keys = @parser.keys; super
+    notify: -> @catcodes = @parser.catcodes; super
 
     parse: (lx) -> log "lx in wrap=#{lx}\n"; return @parser.call lx
 
@@ -528,55 +549,11 @@ exports.Wrap = class Wrap extends Parser
     reindex: ->
         return @ unless @dirty
         @parser.reindex()
-        @keys = @parser.keys
+        @catcodes = @parser.catcodes
+        @epsilon  = @parser.epsilon
         return super
 
     toString: -> @name ? "Wrap(#{@parser})"
-
-#-------------------------------------------------------------------------------
-# If(triggerParser, parser, whenNotTriggered):
-# when the triggerParser fails, the value in whenNotTriggered
-# No keys: it succeeds if trigger doesn't parse.
-#-------------------------------------------------------------------------------
-exports.if = (x...) -> new If x...
-exports.If = class If extends Parser
-    constructor: (trigger, parser, @whenNotTriggered) ->
-        super
-        @trigger = lift trigger
-        @parser  = lift parser
-        @keys    = false
-        @trigger.addListener @
-
-    reindex: ->
-        return @ unless @dirty
-        @trigger.reindex()
-        @keys = false
-        return super
-
-    parse: (lx) ->
-        print "TRIGGER #{@trigger}\n"
-        if @trigger.call(lx) != fail
-            print "SUCCESS\n"
-            bookmark = lx.save()
-            result = @parser.call lx
-            if result == fail then lx.restore bookmark; return fail
-            else return result
-        else print "FAILURE\n"; return @whenNotTriggered
-
-    toString: -> @name ? "If(#{@trigger},  #{@parser}, #{@whenNotTriggered})"
-
-#-------------------------------------------------------------------------------
-# TODO: remove?
-# Token predicate.
-#
-# Take a predicate on tokens as a constructor parameter, suceed by consuming
-# the next token iff it satisfied that predicate.
-#-------------------------------------------------------------------------------
-exports.filter = (x...) -> new Filter x...
-exports.Filter = class Filter extends Parser
-    constructor: (@predicate) -> super
-    parse: (lx) ->
-        if @predicate(lx.peek()) then return lx.next() else return fail
 
 #-------------------------------------------------------------------------------
 # Expression parser generator.
@@ -619,9 +596,9 @@ exports.Expr = class Expr extends Parser
         @prefix  = { indexed: { }, unindexed: [ ], list: [ ] }
         @infix   = { indexed: { }, unindexed: [ ], list: [ ] }
         @suffix  = { indexed: { }, unindexed: [ ], list: [ ] }
-        @keys    = { }
+        @catcodes    = { }
 
-    # TODO: support key update if expression parsers eventually support keys.
+    # TODO: support key update if expression parsers eventually support catcodes.
     setPrimary: (primary) ->
         @primary = lift primary
         @primary.addListener @
@@ -631,16 +608,18 @@ exports.Expr = class Expr extends Parser
     reindex: ->
         return @ unless @dirty
         @primary.reindex()
+        if @primary.epsilon
+            @error "Cannot build an expression parser around an epsilon-production primary parser"
 
         for setname in ['prefix', 'infix', 'suffix']
             oldset = @[setname]
             newset = { indexed: { }, unindexed: [ ], list: oldset.list }
             for p in oldset.list
                 p.parser.reindex()
-                keys = p.parser.keys
-                if not keys
+                catcodes = p.parser.catcodes
+                if not catcodes
                     newset.unindexed.push p
-                else for k of keys
+                else for k of catcodes
                     (newset.indexed[k] ?= [ ]).push p
             @[setname] = newset
 
@@ -652,11 +631,11 @@ exports.Expr = class Expr extends Parser
                 list.sort precSort
             @[setname] = newset
 
-        if not @primary.keys or @prefix.unindexed.length>0 then @keys=false
+        if not @primary.catcodes or @prefix.unindexed.length>0 then @catcodes=false
         else
-            @keys = { }
-            (@keys[k] = true) for k of @primary.keys
-            (@keys[k] = true) for k of @prefix
+            @catcodes = { }
+            (@catcodes[k] = true) for k of @primary.catcodes
+            (@catcodes[k] = true) for k of @prefix
         return super
 
     addPrefix: (x) -> @add 'prefix', x
@@ -750,7 +729,7 @@ exports.Expr = class Expr extends Parser
     # (the parser had to be called, to heck that it wouldn't return fail)
     findParser: (set, lx, prec) ->
         log("find a parser for #{lx.peek()}\n")
-        candidates = set.indexed[lx.peek().getKey()] or set.unindexed
+        candidates = set.indexed[lx.peek().getCatcode()] or set.unindexed
         log("candidates = #{set.indexed}\n")
         if candidates
             for p in candidates
@@ -769,24 +748,27 @@ exports.Expr = class Expr extends Parser
 
     toString: -> @name ? "Expr(#{@primary}...)"
 
-# Common ancestor of special parsers which don't consume any token.
-exports.EpsilonParser = class EpsilonParser extends Parser
-
 # Only succeed if the next token is preceded by some spacing.
-class Space extends EpsilonParser
+class Space extends Parser
     typename: "Space"
+    epsilon: true
+    catcodes: false # TODO: there's a difference between sometimes-epsilon and always-epsilon
     parse: (lx) -> return (if lx.peek().s then true else fail)
 exports.space = new Space()
 
 # Only succeed if the next token is NOT preceded by some spacing.
-class NoSpace extends EpsilonParser
+class NoSpace extends Parser
     typename: "NoSpace"
+    epsilon: true
+    catcodes: false
     parse: (lx) -> return (if lx.peek().s then fail else true)
 exports.noSpace = new NoSpace()
 
 # Neutral element: always succeed without consuming any token.
-class One extends EpsilonParser
+class One extends Parser
     typename: "One"
+    epsilon: true
+    catcodes: false
     parse: -> null
 exports.one = new One()
 
