@@ -20,49 +20,39 @@ The project is decomposed into several steps:
 
 1. Development of the Lexer. Compared to the official CS lexer, it
    must be single pass: no rewriting stage, direct handling of string
-   and regex interpolation.
+   and regex interpolation. [IN PROGRESS]
 
 2. Development of the generic parsec library, GrammarGenerator
    (GG). It doesn't need to have a compact/fluid API yet: the final
    API will be based on a static DSL, once PCS is bootstrapped and
-   able to define it.
+   able to define it. [DONE]
 
-3. Implementation of the coffee-script grammar with GG.
+3. Implementation of the coffee-script parser (PCS) with GG 
+   [IN PROGRESS].
 
-4. Tying the parser front-end to CS' back-end: first working
-   PCS-based compiler. At this stage, a merge with the main
-   Coffee-Script project will be needed.
+4. Defining an Abstract Syntax Tree (AST) format [DONE].
 
-5. First implementation of splice (the fundamental operator of static
+5. Merge with Coffee-Script's compiler backend Node.js
+
+At this stage, PCS will be a fully functional Coffee-Script compiler.
+
+6. Implementation of splice (the fundamental operator of static
    metaprogramming).
 
-6. Development of a static DSL, making the definition of GG grammars
+7. Development of a static DSL, making the definition of GG grammars
    terser and more readable. At this stage, GG grammars are expected
    to be more readable than Bison-inspired grammar definitions.
 
-7. Proper splice, lift (inverse operator of splice) + quasi-quotes
+8. Lift (inverse operator of splice) + quasi-quotes
 
-8. Focus on GG usability: good error messages on syntactically
+9. Focus on GG usability: good error messages on syntactically
    incorrect inputs, error recovery for multiple errors detection,
    automated bookkeeping of source/Abstract Syntax Tree (AST)
    correspondence.
 
-9. To be determined. A big issue with Metalua was that Lua's variable
-   scoping semantics was tricky to combine with usable hygienic
-   macros; fixing this in PCS would be a major achievement.
-
-   Another area worthy of investigation would be to determine how much
-   of the back-end could be replaced by macros. This would lead to a
-   distinction between a core CS, and some more superficial
-   extensions. Good candidates for macro-based implementation include
-   pattern matching, list comprehensions...
-
-
-Current state.
---------------
-
-Most of the Lexer is implemented, as well as first-stage GG. The CS
-grammar definition is in progress.
+10. To be determined: macro hygiene, experimental language extensions,
+    modularisation of Coffee-Script (implement non-core features as
+    syntax extensions, in order to simplify the AST->js compiler)...
 
 
 A word about static MP and parsec.
