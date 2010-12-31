@@ -1,6 +1,13 @@
-Array.prototype.toString = -> '[ ' + (@join ', ') + ' ]'
-Function.prototype.toString = -> "<FUNCTION>"
 
+# Enable this to print array elements.
+if true
+    Array.prototype.toString = -> '[ ' + (@join ', ') + ' ]'
+
+# Enable this to prevent function printing from dumping whole sources
+if true
+    Function.prototype.toString = -> "<FUNCTION>"
+
+# Enable this to print objects content.
 if false
     Object.prototype.toString = ->
         '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
@@ -9,8 +16,18 @@ cs = require "../src/CoffeeScriptParser"
 gg = require "../src/GrammarGenerator"
 { tree, toIndentedString, equal:astEqual } = require '../src/Tree'
 
+# set of source strings, indexed by names, to be run as tests.
+# Each string must be a valid coffeescript block, unless its
+# name starts with "fail_": in this case it must *not* parse
+# correctly.
 src = { }
+
+# set of expected ASTs, indexed by names. An AST is optional
+# in a test, but if there is one, then the result of the parser
+# must match.
 ast = { }
+
+#--- TESTS ---------------------------------------------------------------------
 
 # basic identifier
 src.id = "foo"
@@ -38,6 +55,7 @@ src.lambda1 = """
     -> meh
     (x) -> (y) -> curry
 """
+
 ast.lambda1 = [
     tree 'Function', [tree 'Id', 'x'], [tree 'Id', 'x']
     tree 'Function',
@@ -86,7 +104,7 @@ ast.lambda3 = [
         (tree 'Id', 'last'),
         (tree 'Function', [(tree 'Id', 'a'), (tree 'Id', 'b')], [tree 'Id', 'b'], 0))]
 
-src.fail_lambda1 = '(a, b..., c...) -> "at most one splatted arg"'
+src.fail_lambda1 = '(a, b..., c...) -> "no more than one splatted arg"'
 
 # super invocations
 src.super = """
@@ -222,6 +240,14 @@ src.object3 = '''
         d:2 } } }
 '''
 
+src.object4 = '''
+{
+    a:
+        b:
+            c:1
+        d:2 }
+'''
+
 src.operators = """
     a + b * c
     d ? e ? f
@@ -285,6 +311,9 @@ ast.cmp2 = [
         (tree 'Id', 'z')) ]
 
 
+#--- END OF TESTS --------------------------------------------------------------
+
+
 # Determine the set of test names to run
 # src: test suite
 # regexes: list of regexes, presumably passed from command line
@@ -301,7 +330,7 @@ getTestsToRun = (src, regexes) ->
                     used_regexes[regex]  = true
                     break
         for regex in regexes
-            unless used_regex[regex]
+            unless used_regexes[regex]
                 print "Warning, unused regex '#{regex}'\n"
     return tests
 

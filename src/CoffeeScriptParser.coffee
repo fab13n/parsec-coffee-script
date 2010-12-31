@@ -42,9 +42,9 @@ cs.return = gg.sequence("return", gg.maybe cs.expr).setBuilder (x) ->
 
 # try ... catch ... finally
 cs.try = gg.sequence(
-    "try", cs.block,
-    gg.if('catch', gg.sequence(gg.id, cs.lineOrBlock)),
-    gg.if('finally', cs.block) #lineorbblock?
+    "try", cs.lineOrBlock,
+    gg.maybe('catch', gg.sequence(gg.id, cs.lineOrBlock)).setBuilder(1),
+    gg.maybe('finally', cs.lineOrBlock).setBuilder(1)
 ).setBuilder (x) ->
     tblock = x[1]
     [_, cid, cblock] = x[2] if x[2]
@@ -58,7 +58,7 @@ cs.whileLine = gg.sequence(
     gg.if('when', cs.expr)
 ).setBuilder (x) ->
     { cond, invert, guard } = x
-    if invert then cond = tree "!", cond
+    if invert then cond = tree 'Op', '!', cond
     return tree [cond, guard]
 
 # block-prefix while/until statement
@@ -88,8 +88,12 @@ cs.forLine = gg.sequence(
 ).setBuilder (x) ->
     [ _, own, vars, op, collection, { guard, step} ] = x
     return gg.fail if op=='of' and step
+    return gg.fail if op=='in' and own
     return gg.fail unless 1 <= vars.length <= 2
-    return [ op, vars, collection, guard, step ]
+    r = [ op, vars, collection ]
+    r.push guard if guard or step
+    r.push step  if step
+    return r
 
 # block-prefix for statement
 cs.for = gg.sequence(cs.forLine, cs.block).setBuilder (x) ->
@@ -193,7 +197,7 @@ cs.parentheses = gg.sequence(
             if param.tag=='Id'
                 continue
             else if param.tag=='Op' and param.children[0]=='...' and param.children[1].tag=='Id'
-                if splatIdx then return gg.fail # multiple splats
+                if splatIdx then return gg.fail # multiple splats forbidden
                 else splatIdx = i; insideParens[i]=param.children[1]
             else return gg.fail # invalid parameter
 
@@ -259,7 +263,8 @@ class MultiLine extends gg.Parser
 
     reindex: ->
         @seq.reindex()
-        @keys = @seq.keys
+        @catcodes = @seq.catcodes
+        @epsilon  = @seq.epsilon
         return super
 
     parse: (lx) ->
@@ -283,12 +288,23 @@ cs.array = cs.multiLine {
     suffix:    ']' }
 .setBuilder (x) -> tree 'Array', x
 
-cs.object = cs.multiLine {
-    prefix:    '{'
-    primary:   gg.sequence(gg.id, ':', cs.expr).setBuilder (x) -> [x[0], x[2]]
+cs.objectEntry =
+    gg.sequence(gg.id, ':', cs.expr).setBuilder (x) -> [x[0], x[2]]
+
+cs.objectWithoutBraces = cs.multiLine({
+    primary:   cs.objectEntry
     separator: gg.choice(',', ';', gg.one)
-    suffix:    '}' }
-.setBuilder (x) -> tree 'Object', x
+}).setBuilder (x) -> tree 'Object', x
+
+cs.objectWithBraces = cs.multiLine({
+    prefix:    "{"
+    primary:   cs.objectEntry
+    separator: gg.choice(',', ';', gg.one)
+    suffix:    "}"
+}).setBuilder (x) -> tree 'Object', x
+
+cs.object = gg.choice(cs.objectWithoutBraces, cs.objectWithBraces)
+#cs.object = cs.objectWithBraces
 
 cs.string = gg.wrap(gg.string).setBuilder((x) -> tree 'String', x)
 

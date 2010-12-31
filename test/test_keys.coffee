@@ -20,23 +20,23 @@ print "\n\n--- Keys dump ---\n"
 
 for name, parser of cs
     continue unless parser instanceof gg.Parser
-    if parser.keys
-        print "cs.#{name}\t--has-keys-->\t#{kwlist parser.keys}\n"
+    if parser.catcodes
+        print "cs.#{name}\t--has-catcodes-->\t#{if parser.epsilon then 'epsilon + ' else ''}#{kwlist parser.catcodes}\n"
         if parser instanceof gg.Expr
             if parser.primary
-                print "\t expr primary keys: #{kwlist parser.primary.keys}\n"
+                print "\t expr primary keys: #{kwlist parser.primary.catcodes}\n"
             else
                 print "\t no primary parser\n"
             for setname in ['prefix', 'infix', 'suffix']
                 set = parser[setname]
-                print "\t expr #{setname} keys: #{kwlist set}\n"
+                print "\t expr #{setname} catcodes: #{kwlist set}\n"
     else print "cs.#{name} has no key\n"
 
 print '\n'
 
 for name, parser of cs
-    unless parser not instanceof gg.Parser or parser.keys
-        print "(cs.#{name}: no keys)\n"
+    unless parser not instanceof gg.Parser or parser.catcodes
+        print "(cs.#{name}: no catcode)\n"
 
 print '\n'
 
