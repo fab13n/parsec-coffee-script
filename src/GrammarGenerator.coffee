@@ -1,3 +1,4 @@
+#
 # Grammar generator
 #
 
@@ -80,7 +81,7 @@ exports.Parser = class Parser
         @listeners    ?= [ ]
         @backtrack    ?= true
         @id           ?= pid++
-        @dirty        ?= false
+        @dirty        ?= true
 
     # Run the parser on the token stream `lx', consumming tokens out of it
     # if applicable. Return the object `fail' and leaves the token stream
@@ -237,8 +238,6 @@ exports.Const = class Const extends Parser
             @name = @t
             @catcodes[@t] = true
 
-        print "created #{@} with catcodes #{@catcodes2string()}\n"
-
     parse: (lx) ->
         tok = lx.peek()
         log "is #{tok} a #{@}? "
@@ -293,12 +292,14 @@ exports.Sequence = class Sequence extends Parser
         @epsilon  = false
         for child in @children
             child.reindex()
-            c = child.catcodes
-            if c
-                (@catcodes[k] = true) for k of c
-                if child.epsilon then @epsilon=true else break
+            continue if child.epsilon == 'always'
+            if child.catcodes
+                (@catcodes[k] = true) for k of child.catcodes
+                unless child.epsilon=='maybe'
+                    @epsilon = false
+                    break
             else
-                print "!!! sequence loses catcode because of #{child}\n"
+                print "!!! sequence #{@name} loses catcode because of #{child}\n"
                 @catcodes = false
                 break
         return super
@@ -390,6 +391,7 @@ exports.Choice = class Choice extends Parser
     # Also reorganize the precedence lists correctly, in case other
     # reindexings are triggered later.
     reindex: ->
+        #TODO: attempt to keep alwaysEpsilon property
 
         return @ unless @dirty
 
@@ -425,10 +427,13 @@ exports.Choice = class Choice extends Parser
             child = allChildren[i]
             prec  = allPrecs[i]
             child.reindex()
-            @epsilon ||= child.epsilon
+
+            if child.epsilon
+                @epsilon = 'maybe'
+
             unless child.catcodes
                 insertWithPrec @unindexed, @unindexedP, child, prec
-                print "!!! choice loses catcodes because of #{child}\n"
+                print "!!! choice #{@name} loses catcodes because of #{child}\n"
                 @catcodes = false
             else
                 for key of child.catcodes
@@ -469,8 +474,17 @@ exports.Maybe = class Maybe extends Parser
 
     constructor: (parser, defaultval) ->
         super
-        @parser  = lift parser
-        @default = defaultval ? false
+        @parser   = lift parser
+        @default  = defaultval ? false
+        @parser.addListener @
+
+    reindex: ->
+        return unless @dirty
+        @parser.reindex()
+        print "maybe: parser #{@parser} has catcodes #{@parser.catcodes2string()}\n"
+        @epsilon  = if @parser.epsilon=='always' then 'always' else 'maybe'
+        @catcodes = false # always succeeds -> all catcodes are acceptable
+        super
 
     parse: (lx) ->
         result = @parser.call(lx)
@@ -507,8 +521,12 @@ exports.List = class List extends Parser
     reindex: ->
         return @ unless @dirty
         @primary.reindex()
-        @epsilon = @canBeEmpty or @primary.epsilon
+        @epsilon = if @canBeEmpty then 'maybe' else @primary.epsilon
         @catcodes = @primary.catcodes # can be false
+        if @primary.epsilon
+            if @catcodes and @separator?.catcodes
+                @catcodes = @catcodes.concat @separator.catcodes
+            else @catcodes = false
         return super
 
     parse: (lx) ->
@@ -549,8 +567,8 @@ exports.Wrap = class Wrap extends Parser
     reindex: ->
         return @ unless @dirty
         @parser.reindex()
-        @catcodes = @parser.catcodes
-        @epsilon  = @parser.epsilon
+        for field in ['catcodes', 'epsilon']
+            @[field] = @parser[field]
         return super
 
     toString: -> @name ? "Wrap(#{@parser})"
@@ -609,7 +627,7 @@ exports.Expr = class Expr extends Parser
         return @ unless @dirty
         @primary.reindex()
         if @primary.epsilon
-            @error "Cannot build an expression parser around an epsilon-production primary parser"
+            print "Cannot build an expression parser around an epsilon-production primary parser"
 
         for setname in ['prefix', 'infix', 'suffix']
             oldset = @[setname]
@@ -751,15 +769,16 @@ exports.Expr = class Expr extends Parser
 # Only succeed if the next token is preceded by some spacing.
 class Space extends Parser
     typename: "Space"
-    epsilon: true
-    catcodes: false # TODO: there's a difference between sometimes-epsilon and always-epsilon
+    epsilon:  'always'
+    catcodes: false
     parse: (lx) -> return (if lx.peek().s then true else fail)
 exports.space = new Space()
 
 # Only succeed if the next token is NOT preceded by some spacing.
 class NoSpace extends Parser
     typename: "NoSpace"
-    epsilon: true
+    alwaysEpsilon: true
+    epsilon:  'always'
     catcodes: false
     parse: (lx) -> return (if lx.peek().s then fail else true)
 exports.noSpace = new NoSpace()
@@ -767,7 +786,7 @@ exports.noSpace = new NoSpace()
 # Neutral element: always succeed without consuming any token.
 class One extends Parser
     typename: "One"
-    epsilon: true
+    epsilon: 'always'
     catcodes: false
     parse: -> null
 exports.one = new One()
