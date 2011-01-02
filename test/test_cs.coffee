@@ -1,33 +1,44 @@
 
+#-------------------------------------------------------------------------------
 # Enable this to print array elements.
 if true
     Array.prototype.toString = -> '[ ' + (@join ', ') + ' ]'
 
+#-------------------------------------------------------------------------------
 # Enable this to prevent function printing from dumping whole sources
 if true
     Function.prototype.toString = -> "<FUNCTION>"
 
+#-------------------------------------------------------------------------------
 # Enable this to print objects content.
 if false
     Object.prototype.toString = ->
         '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
 
+#-------------------------------------------------------------------------------
+# Imports
 cs = require "../src/CoffeeScriptParser"
 gg = require "../src/GrammarGenerator"
 { tree, toIndentedString, equal:astEqual } = require '../src/Tree'
 
+#-------------------------------------------------------------------------------
 # set of source strings, indexed by names, to be run as tests.
 # Each string must be a valid coffeescript block, unless its
 # name starts with "fail_": in this case it must *not* parse
 # correctly.
+#-------------------------------------------------------------------------------
 src = { }
 
+#-------------------------------------------------------------------------------
 # set of expected ASTs, indexed by names. An AST is optional
 # in a test, but if there is one, then the result of the parser
 # must match.
+#-------------------------------------------------------------------------------
 ast = { }
 
+#-------------------------------------------------------------------------------
 #--- TESTS ---------------------------------------------------------------------
+#-------------------------------------------------------------------------------
 
 # basic identifier
 src.id = "foo"
@@ -278,6 +289,8 @@ src.if4 = """
     doit() if cond1 if cond2
 """
 
+ast.if4
+
 src.string1 = """
     x = "string"
 """
@@ -311,12 +324,16 @@ ast.cmp2 = [
         (tree 'Id', 'z')) ]
 
 
+#-------------------------------------------------------------------------------
 #--- END OF TESTS --------------------------------------------------------------
+#-------------------------------------------------------------------------------
 
 
+#-------------------------------------------------------------------------------
 # Determine the set of test names to run
 # src: test suite
 # regexes: list of regexes, presumably passed from command line
+#-------------------------------------------------------------------------------
 getTestsToRun = (src, regexes) ->
     tests = { }
     if regexes.length is 0
@@ -334,11 +351,13 @@ getTestsToRun = (src, regexes) ->
                 print "Warning, unused regex '#{regex}'\n"
     return tests
 
+#-------------------------------------------------------------------------------
 # Run one test.
 # name: name of the test. The test must fail iff the name starts with "fail_".
 # src:  source string of the test.
 # ast:  AST that must be produced as a result (optional).
 # logger: what to do if a test fails.
+#-------------------------------------------------------------------------------
 runTest = (name, src, ast, logger) ->
     logger ?= print
     print "\n***** Test #{name} *****\n"
@@ -356,7 +375,7 @@ runTest = (name, src, ast, logger) ->
         print "\n#{name} input:\n#{src}\n\nCompilation of #{name} failed, as expected\n"
         return true
     else if astFailed and not shouldFail
-        logger "Failure, invalid tree for src.#{name}\nexp: #{ast}\ngot: #{t}"
+        logger "Failure, invalid tree for src.#{name}\nexp: #{ast}\ngot: #{t}\nsrc: #{src}"
         return false
     else if hasFailed and not shouldFail
         logger "Failure, cannot parse src.#{name}"
@@ -368,6 +387,9 @@ runTest = (name, src, ast, logger) ->
         print "\n#{name} input:\n#{src}\n\n#{name} result:\n#{toIndentedString t}\n"
         return true
 
+#-------------------------------------------------------------------------------
+# Main
+#-------------------------------------------------------------------------------
 main = (args) ->
 
     log = [ ]
