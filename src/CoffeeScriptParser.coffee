@@ -3,6 +3,8 @@ lex = require './Lexer'
 { tree, toIndentedString } = require './Tree'
 cs = exports
 
+{ print, error, inspect } = require 'util'
+
 # reserved keywords
 cs.keywords = new lex.Keywords( "if", "else", "true", "false", "new",
   "return", "try", "catch", "finally", "throw", "break", "continue",
@@ -34,7 +36,7 @@ cs.nonEmptyBlock = gg.sequence(
 cs.block = gg.maybe(cs.nonEmptyBlock, [ ])
 
 # Either a line or a block
-cs.lineOrBlock = gg.named 'lineOrBlock', gg.choice(cs.block, cs.line)
+cs.lineOrBlock = gg.choice(cs.line, cs.block)
 
 # Return statement, with optional value
 cs.return = gg.sequence("return", gg.maybe cs.expr).setBuilder (x) ->
@@ -235,8 +237,10 @@ cs.bracketAccessor = gg.sequence(
     ']'
 ).setBuilder (x) ->
     [_, _, a, rest, _] = x
-    if rest then [op, b] = rest; return [ a, op, b ]
-    else return [ a ]
+    if rest then [op, b] = rest; print "oui"; r = [ a, op, b ]
+    else r = [ a ]
+    print "bracketAccessor.builder(#{x}) = #{r}\n"
+    return r
 
 cs.field = gg.choice(gg.id, gg.anyKeyword)
 
@@ -267,9 +271,9 @@ class MultiLine extends gg.Parser
         @epsilon  = @seq.epsilon
         return super
 
-    parse: (lx) ->
+    parseInternal: (lx) ->
         initialIndent = lx.indentation(0) # Remember indentation
-        result = @seq.call lx             # Read content
+        result = @seq.parse lx            # Read content
         while true                        # Skip closing dedents
             tok = lx.peek()
             if tok.t=='dedent' and tok.v>initialIndent then lx.next() else break
@@ -328,7 +332,6 @@ cs.primary = gg.named 'primary-expr', gg.choice(
     cs.interpString,
     #gg.js,
     cs.array,
-    cs.object,
     gg.wrap("true").setBuilder(-> tree 'True'),
     gg.wrap("false").setBuilder(-> tree 'False'),
     gg.wrap("break").setBuilder(-> tree 'Break'),
@@ -343,7 +346,8 @@ cs.primary = gg.named 'primary-expr', gg.choice(
     cs.super,
     cs.parentheses,
     cs.paramlessFunc,
-    cs.at
+    cs.at,
+    #cs.object # low precedence, it's ambiguous
 )
 
 cs.expr.setPrimary cs.primary
@@ -394,6 +398,8 @@ infix  parser:gg.choice('isnt', '!='), prec:110, assoc:'left', builder:'!='
 infix  parser:gg.choice('and',  '&&'), prec:100, assoc:'left', builder:'&&'
 infix  parser:gg.choice('or',   '||'), prec:90,  assoc:'left', builder:'||'
 prefix parser:gg.choice('not',  '!'),  prec:180, assoc:'left', builder:'!'
+prefix parser:'++', prec:180, builder:'++prefix'
+prefix parser:'--', prec:180, builder:'--prefix'
 suffix parser:'++', prec:180, builder:'++suffix'
 suffix parser:'--', prec:180, builder:'--suffix'
 
@@ -415,7 +421,7 @@ suffix parser:'--', prec:180, builder:'--suffix'
 # Operators whose concrete syntax names match AST 'Op' tag.
 regularOperators = [
     # 190: suffix '?'
-    [ prefix, {prec:180}, '+', '-', '!', '~', '++', '--' ],
+    [ prefix, {prec:180}, '+', '-', '!', '~' ],
     [ infix,  {prec:170}, '*', '/', '%' ],
     [ infix,  {prec:160}, '+', '-' ],
     [ infix,  {prec:150}, '<<', '>>', '>>>' ],
@@ -429,7 +435,8 @@ regularOperators = [
 
 for [adder, template, parsers...] in regularOperators
     for parser in parsers
-        descr = { parser }; descr[k] = v for k, v of template
+        descr = { parser }
+        (descr[k] = v) for k, v of template
         adder descr
 
 #prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], [body]
@@ -441,8 +448,8 @@ suffix parser:cs.bracketAccessor, prec:90, builder:(x, i) ->
     return tree "Accessor", x, a unless op
     return tree "RangeAccessor", x, op, a, b
 
-infix parser:'if',     prec:60, assoc:'right', builder:(a,_,b) -> tree 'If', b, [a]
-infix parser:'unless', prec:60, assoc:'right', builder:(a,_,b) -> tree 'If', (tree 'Op', '!', b), [a]
+infix parser:'if',     prec:20, assoc:'left', builder:(a,_,b) -> tree 'If', b, [a]
+infix parser:'unless', prec:20, assoc:'left', builder:(a,_,b) -> tree 'If', (tree 'Op', '!', b), [a]
 
 # main parsing function
 cs.parse = (parser, src) ->
@@ -455,7 +462,7 @@ cs.parse = (parser, src) ->
     lexer = new lex.Lexer(src, cs.keywords)
     stream = new lex.Stream lexer
     # print("\nTokens: \n#{stream.tokens.join('\n')}\n\n")
-    parser.call stream
+    parser.parse stream
 
 for name, p of cs
     if p instanceof gg.Parser

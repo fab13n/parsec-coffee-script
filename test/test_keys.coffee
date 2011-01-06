@@ -5,31 +5,34 @@ if false
     Object.prototype.toString = ->
         '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
 
-cs = require "../src/CoffeeScriptParser"
+{ print, error, inspect } = require 'util'
+
 gg = require "../src/GrammarGenerator"
+cs = require "../src/CoffeeScriptParser"
 
 kwlist = (set) ->
     ("'#{k.replace /^keyword\-/, '!'}'" for k of set).join ', '
 
+orderedNames = (n for n of cs).sort()
 
 for name, parser of cs
     continue unless parser instanceof gg.Parser
+    print " * Force reindexing of #{name}\n"
     parser.reindex()
 
-print "\n\n--- Keys dump ---\n"
-
-for name, parser of cs
+for name in orderedNames
+    parser = cs[name]
     continue unless parser instanceof gg.Parser
     if parser.catcodes
-        print "cs.#{name}\t--has-catcodes-->\t#{if parser.epsilon then 'epsilon + ' else ''}#{kwlist parser.catcodes}\n"
+        print "cs.#{name}\t--has-catcodes-->\t#{if parser.epsilon then 'epsilon + ' else ''}#{parser.catcodes2string()}\n"
         if parser instanceof gg.Expr
             if parser.primary
-                print "\t expr primary keys: #{kwlist parser.primary.catcodes}\n"
+                print "\t expr primary keys: #{parser.primary.catcodes2string()}\n"
             else
                 print "\t no primary parser\n"
             for setname in ['prefix', 'infix', 'suffix']
                 set = parser[setname]
-                print "\t expr #{setname} catcodes: #{kwlist set}\n"
+                print "\t expr #{setname} catcodes: #{set.catcodes2string()}\n"
     else print "cs.#{name} has no key\n"
 
 print '\n'
@@ -45,7 +48,8 @@ for name, parser of cs
         print "(cs.#{name}: not a parser)\n"
 
 links = { }
-for name, p of cs
+for name in orderedNames
+    p = cs[name]
     continue unless  p instanceof gg.Parser
     for q in p.listeners
         links[q.toString()+"\t--listens-to-->\t"+p.toString()]=true
@@ -53,6 +57,3 @@ for name, p of cs
 print "\ndependencies:\n"
 print (k for k of links).sort().join '\n'
 
-print '\n\ninfix:\n'
-
-print cs.expr.infix

@@ -1,3 +1,5 @@
+{ print, error, inspect } = require 'util'
+
 this.exports = this unless process?
 
 #log = ->
@@ -152,7 +154,7 @@ exports.Lexer = class Lexer
         src_i = @src[@i]
         if not src_i? #EOF, close all pending indents
             return null unless @indentLevels?
-            x = @token 'dedent', v for v in @indentLevels.reverse()
+            x = (@token 'dedent', v for v in @indentLevels.reverse())
             @indentLevels = null
             return x
         else if src_i == '"'

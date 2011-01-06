@@ -279,6 +279,7 @@ naiveSequence =
         (stream) -> child.call(stream) for child in children
     )
 
+It is more idiomatic to call "gg.lift f" than "gg.liftedFunction f".
 
 
 gg.wrap(parser)
@@ -355,13 +356,15 @@ combinator users, rather than combinator writers. However, for parsing
 to remain efficient, some non-trivial internal mechanisms are
 required. 
 
-keys
+catcodes
+
+epsilon productions
 
 change notification
 
 reindexing
 
-protected API
+protected API, to extend existing parser classes
 
 
 

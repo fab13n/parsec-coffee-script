@@ -11,7 +11,7 @@ if true
 
 #-------------------------------------------------------------------------------
 # Enable this to print objects content.
-if false
+if true
     Object.prototype.toString = ->
         '{' + (("#{k}: #{v}" for k, v of @).join ', ') + '}'
 
@@ -19,6 +19,7 @@ if false
 # Imports
 cs = require "../src/CoffeeScriptParser"
 gg = require "../src/GrammarGenerator"
+{ print, error, inspect } = require 'util'
 { tree, toIndentedString, equal:astEqual } = require '../src/Tree'
 
 #-------------------------------------------------------------------------------
@@ -39,6 +40,8 @@ ast = { }
 #-------------------------------------------------------------------------------
 #--- TESTS ---------------------------------------------------------------------
 #-------------------------------------------------------------------------------
+
+src.x1='x[1]'
 
 # basic identifier
 src.id = "foo"
@@ -121,7 +124,7 @@ src.fail_lambda1 = '(a, b..., c...) -> "no more than one splatted arg"'
 src.super = """
     super
     super 1, 2, 3
-    super(1,2,3)
+    super(4,5,6)
 """
 
 ast.super = [
@@ -131,9 +134,9 @@ ast.super = [
         (tree 'Number', 2)
         (tree 'Number', 3) ]
     tree 'Call', (tree 'Super'), [
-        (tree 'Number', 1)
-        (tree 'Number', 2)
-        (tree 'Number', 3) ] ]
+        (tree 'Number', 4)
+        (tree 'Number', 5)
+        (tree 'Number', 6) ] ]
 
 
 # as for functions, no space before args in parentheses
@@ -164,11 +167,11 @@ src.fail_splat = """
 
 # at-sign
 src.at = """
-    foo @
-    @foo
+    x1 @
+    @x2
     @
-    @foo(a, @b, @c)
-    @foo a, @b, @c
+    @x3(a, @b, @c)
+    @x4 a, @b, @c
     @[1]
 """
 
@@ -259,6 +262,13 @@ src.object4 = '''
         d:2 }
 '''
 
+src.op1 = '1+2'
+src.op2 = '1 + 2'
+src.op3 = '1+2+3'
+src.op4 = '1+2*3'
+src.op5 = '1+2+3+4'
+src.op6 = '1+2-3+4-5'
+
 src.operators = """
     a + b * c
     d ? e ? f
@@ -324,6 +334,16 @@ ast.cmp2 = [
         (tree 'Id', 'z')) ]
 
 
+src.eq1 = '''a=b=c''' # also tests right-assoc
+
+ast.eq1 = [
+    (tree 'Op', '=',
+        (tree 'Id', 'a'),
+        (tree 'Op', '=',
+            (tree 'Id', 'b'),
+            (tree 'Id', 'c')))]
+
+
 #-------------------------------------------------------------------------------
 #--- END OF TESTS --------------------------------------------------------------
 #-------------------------------------------------------------------------------
@@ -360,8 +380,13 @@ getTestsToRun = (src, regexes) ->
 #-------------------------------------------------------------------------------
 runTest = (name, src, ast, logger) ->
     logger ?= print
-    print "\n***** Test #{name} *****\n"
-    t = cs.parse src
+    print "\n***** Test #{name} *****\n#{src}\n"
+    try
+        t = cs.parse src
+    catch e
+        logger "Exception while running test '#{name}': #{e}\n#{e.stack}\n"
+        return false
+
     hasFailed  = t is gg.fail
     shouldFail = name.match /^fail_/
     if ast?
@@ -400,13 +425,24 @@ main = (args) ->
     total = success = 0
     for name of getTestsToRun(src, args)
         total++
-        success++ if runTest name, src[name], ast[name], logger
+        r = runTest name, src[name], ast[name], logger
+        success++ if r
     if total == success
         print "\nAll #{total} tests passed successfully\n"
     else
-        print "\n#{total-success} failures out of #{total}:\n\n#{log.join '\n\n'}\n"
+        print """
 
-main (process.argv)
+           ------------------------------------------------------------------
+           ------------------------------------------------------------------
+           -- #{success} successes and #{total-success} failures out of #{total} tests
+           ------------------------------------------------------------------
+           ------------------------------------------------------------------
+
+           #{log.join '\n\n'}
+
+           """
+
+main (process.argv[2...])
 
 #TODO: src finishing with a comment
 

@@ -2,16 +2,19 @@
 # Grammar generator
 #
 
-enableLogs = false
-if enableLogs then log = print else log = ->
+util = require 'util'
 
-log2=print
+enableLogs = false
+#enableLogs = true
+if enableLogs then log = util.print else log = ->
+
+log2=util.print
 
 this.exports = this unless process?
 
-fail = exports.fail = ["fail"]
+fail = exports.fail = { toString: -> "<FAIL>" }
 
-pid=1
+lastUid=1
 
 #-------------------------------------------------------------------------------
 # Check that x is either a parser, or something that can be sensibly
@@ -69,7 +72,9 @@ lift = exports.lift = (x) ->
 # 'fail'
 #
 #-------------------------------------------------------------------------------
-callNest = 0
+callNest    = 0
+reindexNest = 0
+
 exports.Parser = class Parser
     typename: "Parser"
 
@@ -79,14 +84,13 @@ exports.Parser = class Parser
         @catcodes     ?= false
         @epsilon      ?= false
         @listeners    ?= [ ]
-        @backtrack    ?= true
-        @id           ?= pid++
+        @uid          ?= lastUid++
         @dirty        ?= true
 
     # Run the parser on the token stream `lx', consumming tokens out of it
     # if applicable. Return the object `fail' and leaves the token stream
     # unchanged if parsing fails.
-    call: (lx, args...) ->
+    parse: (lx, args...) ->
 
         if typeof lx is 'string'
             if exports.defaultStreamMaker
@@ -94,32 +98,30 @@ exports.Parser = class Parser
             else
                 @error "token stream expected"
 
-        callNest++
-        log2("|  ") for _ in [0..callNest]
-        log2("? #{@toShortString(80)}\n")
+        prefix = if @dirty then "[?]" else if @catcodes then "[+]" else "[-]"
+        ind = ("|  " for _ in [0..callNest]).join ""
+        log2("#{ind}? #{prefix} #{@toShortString(80)}, next token = #{lx.peek()}\n")
 
         if @dirty then @reindex()
 
-        x = @parse(lx, args...)
+        callNest++
+        x = @parseInternal(lx, args...)
+        callNest--
 
         if x==fail
-            log2("|  ") for _ in [0..callNest]
-            log2("- #{@toShortString()} failed on #{lx.peek().getCatcode()}.\n")
-            callNest--
+            log2("#{ind}- #{@toShortString()} failed on #{lx.peek().getCatcode()}.\n")
             return fail
         else
             if @builder? then x = @builder x
             (x = t(x)) for t in @transformers
-            log2("|  ") for _ in [0..callNest]
-            log2("+ #{@toShortString()} succeeded, returned '#{x}'.\n")
-            callNest--
+            log2("#{ind}+ #{@toShortString()} succeeded, returned '#{x}'.\n")
             return x
 
     # Internal parsing method: return either a result or `fail', by consumming
     # tokens from lx.
     # This is a protected method which must not be called from outside: use
-    # the wrapping method @call(lx) instead.
-    parse: (lx) -> @error "Invalid parser"
+    # the wrapping method @parse(lx) instead.
+    parseInternal: (lx) -> @error "Invalid parser"
 
     # Change the builder. Argument can be:
     #  * a builder function;
@@ -140,12 +142,30 @@ exports.Parser = class Parser
         return @
 
     reindex: ->
+        return @ unless @dirty
+        #ind = (".  " for _ in [0..reindexNest]).join("")
+        #util.print "#{ind}<reindex '#{@toShortString()}'>\n"
+        #reindexNest++
+        @reindexInternal()
         @dirty=false
-        #print "<reindexed '#{@toShortString()}', catcodes = #{@catcodes2string()}>\n"
+        #reindexNest--
+        #util.print "#{ind}</reindex '#{@toShortString()}', catcodes=#{@catcodes2string()}>\n"
         return @
 
-    # DEPRECATED?
-    setBacktrack: (x) -> @backtrack = (if x? then x else true); return @
+    # Perform all operations required to compute this parser's set of catcodes,
+    # and its epsilon status.
+    #
+    # This might require the reindexing of some children, but should
+    # not cause a full reindexing if not needed for catcodes:
+    #
+    # - reindexing will be triggered by @parse() if and when needed.
+    #
+    # - Moreover, a too eager recursive reindexing might cause
+    #   infinite loops (this is closely related to left-recursion
+    #   issues with top-down parsers).
+    #
+    # TODO: add support for constant parsers, to optimize reindexing when applicable
+    reindexInternal: ->
 
     # When a change is made to this parser, notify all parsers who
     # registered for update notifications.
@@ -162,8 +182,9 @@ exports.Parser = class Parser
     #
     # TODO: delay notification until the first parsing occurs, to avoid
     #       useless multiple notifications. Use a "dirty" flag instead,
-    #       and perform a check in @call
+    #       and perform a check in @parse
     notify: ->
+        return if @dirty
         @dirty=true
         listener.notify() for listener in @listeners
 
@@ -209,7 +230,7 @@ exports.LiftedFunction = class LiftedFunction extends Parser
     # field f: function to be applied
     typename:    'Function'
     constructor: (@f) -> super
-    parse:       (lx) -> return @f(lx)
+    parseInternal:       (lx) -> return @f(lx)
 
 
 #-------------------------------------------------------------------------------
@@ -237,15 +258,18 @@ exports.Const = class Const extends Parser
         else
             @name = @t
             @catcodes[@t] = true
+        @dirty = false
 
-    parse: (lx) ->
+    parseInternal: (lx) ->
         tok = lx.peek()
-        log "is #{tok} a #{@}? "
-        if tok.t != @t then log "no!\n"; return fail
-        if @values? and not @values[tok.v] then log "no!\n"; return fail
-        log "yes!\n"
-        return lx.next().v or true
+        if tok.t != @t
+            return fail
+        else if @values? and not @values[tok.v]
+            return fail
+        else
+            return lx.next().v
 
+# TODO: put in a for loop
 exports.id         = new Const 'id'
 exports.number     = new Const 'number'
 exports.indent     = new Const 'indent'
@@ -265,8 +289,8 @@ exports.keyword    = keyword = (values...) -> new Const 'keyword', true, values.
 #-------------------------------------------------------------------------------
 exports.AnyKeyword = class AnyKeyword extends Parser
     typename: "any-keyword"
-    constructor: -> super
-    parse: (lx) ->
+    constructor: -> super; @dirty = false
+    parseInternal: (lx) ->
         tok = lx.peek()
         if tok.t == 'keyword' then return lx.next().v
         else return fail
@@ -283,11 +307,17 @@ exports.Sequence = class Sequence extends Parser
 
     constructor: (children...) ->
         super
-        @children = lift child for child in children
+        @children = (lift child for child in children)
         @dirty=true
 
-    reindex: ->
-        return @ unless @dirty
+        # TODO: no need to listen after the epsilon children.
+        # However, the number of epsilon children might change,
+        # and the epsilon property is only known after reindexing.
+        for child in @children
+            child.addListener @
+            #break if child.epsilon
+
+    reindexInternal: ->
         @catcodes = { }
         @epsilon  = false
         for child in @children
@@ -299,22 +329,21 @@ exports.Sequence = class Sequence extends Parser
                     @epsilon = false
                     break
             else
-                print "!!! sequence #{@name} loses catcode because of #{child}\n"
+                util.print "!!! sequence #{@} loses catcode because of #{child}\n"
                 @catcodes = false
                 break
-        return super
 
-    parse: (lx) ->
+    parseInternal: (lx) ->
         result   = []
         bookmark = lx.save()
         for child, i in @children
-            log "Sequence child ##{i}, token=#{lx.peek()}, parser=#{child.toShortString()}...\n"
-            x = child.call(lx)
+            log "Sequence child ##{i}\n"
+            x = child.parse(lx)
             if x == fail
-                if @backtrack or i==0
-                    log ">>>> BACKTRACKING FROM #{lx.peek()} TO "
+                if true # @backtrack or i==0
+                    log ">>>> BACKTRACKING FROM #{lx.peek()} TO " if i>0
                     lx.restore bookmark
-                    log "#{lx.peek()} in #{@toShortString()} <<<<<\n"
+                    log "#{lx.peek()} in #{@toShortString()} <<<<<\n" if i>0
                     return fail
                 else
                     @error "failed on element ##{i}"
@@ -331,7 +360,7 @@ exports.Sequence = class Sequence extends Parser
 # Children parsers are sorted by catcodes.
 #
 #-------------------------------------------------------------------------------
-exports.choice = (x...) -> new Choice x...
+exports.choice = choice = (x...) -> new Choice x...
 exports.Choice = class Choice extends Parser
 
     # field indexed:    parsers to choose from, indexed by key.
@@ -352,118 +381,83 @@ exports.Choice = class Choice extends Parser
     #       by keeping a list.
     #       if precedence is kept in list, it might be removed from indexes.
 
-    constructor: (children...) ->
+    constructor: (precsAndChildren...) ->
         super
-        @indexed    = { }
-        @unindexed  = [ ]
-        @catcodes   = { }
-        @indexedP   = { }
-        @unindexedP = [ ]
-        @unused     = [ ]
-        @unusedP    = [ ]
-        @add children... if children.length>0
+        @list       = [ ] # all children
+        @add precsAndChildren...
 
     # children are not put directly in the correct index. Instead,
     # the whole Choice parser is marked as dirty, so that it will be reindexed
     # correctly the first time it's used.
-    add: (prec, children...) ->
-        if typeof prec != 'number'
-            children.unshift prec
-            prec = 50
-
-        i=0
-        len=children.length
+    add: (precsAndChildren...) ->
+        prec = 50
+        i = 0
+        len = precsAndChildren.length
+        return @ if len is 0
         while i<len
-            x = children[i++]
+            x = precsAndChildren[i++]
             if typeof x == 'number'
                 prec = x
-                x = children[i++]
-            child = lift x
-            @unused.push child
-            @unusedP.push prec--
-            child.addListener @
-
-        @notify() if children.length>0
+                x = precsAndChildren[i++]
+            #util.print "adding parser #{x} in choice\n"
+            parser = lift x
+            parser.addListener @
+            @list.push { parser; prec }
+            prec--
+        @notify()
         return @
 
-    # Take all the children indexes apart, and reinsert every child in
-    # the correct indexes, after having triggered its own reindexing.
-    # Also reorganize the precedence lists correctly, in case other
-    # reindexings are triggered later.
-    reindex: ->
+    reindexInternal: ->
+
         #TODO: attempt to keep alwaysEpsilon property
 
-        return @ unless @dirty
-
-        # insert a child and its precedence in the correct lists,
-        # at places which preserve the property that precedence lists are
-        # sorted by decreasing precedence.
-        insertWithPrec = (list, listP, x, p) ->
-            i=0
-            length=list.length
-            i++ until listP[i] >= p or i>=length
-            for j in [i ... length]
-                return if list[j] == x # duplicate
-                break if listP[j] != p # remaining ones have higher precedence
-            listP.splice i, 0, p
-            list.splice  i, 0, x
-
-        # Reconstitute the lists of all children and precedences
-        allChildren = @unused.concat @unindexed
-        allPrecs    = @unusedP.concat @unindexedP
-        for key, children of @indexed
-            precs = @indexedP[key]
-            for i in [0...children.length]
-                allChildren.push children[i]
-                allPrecs.push precs[i]
-
         # reset indexes
-        @indexed  = { }; @unindexed  = [ ]; @unused  = [ ];
-        @indexedP = { }; @unindexedP = [ ]; @unusedP = [ ];
+        @indexed  = { }; @unindexed  = [ ];
         @catcodes = { }; @epsilon    = false
 
-        # reinsert in appropriate index
-        for i in [0 ... allChildren.length]
-            child = allChildren[i]
-            prec  = allPrecs[i]
-            child.reindex()
+        # Reindex, set epsilon property
+        # TODO: try to preserve epsilon=='always'
+        for entry in @list
+            entry.parser.reindex()
+            @epsilon='maybe' if entry.parser.epsilon
 
-            if child.epsilon
-                @epsilon = 'maybe'
+        # 1st pass: file indexed children under proper indexes
+        for entry in @list
+            continue unless (catcodes = entry.parser.catcodes)
+            for cc of catcodes
+                (@indexed[cc] ?= [ ]).push entry
+                @catcodes[cc] = true
 
-            unless child.catcodes
-                insertWithPrec @unindexed, @unindexedP, child, prec
-                print "!!! choice #{@name} loses catcodes because of #{child}\n"
-                @catcodes = false
-            else
-                for key of child.catcodes
-                    hasAtLeastOneKey = true # TODO: is there an emptiness test for objects?
-                    parsers = (@indexed[key]  ?= [ ])
-                    precs   = (@indexedP[key] ?= [ ])
-                    insertWithPrec parsers, precs, child, prec
-                    @catcodes[key] = true if @catcodes
-                unless hasAtLeastOneKey
-                    insertWithPrec @unused, @unusedP, child, prec
-        return super
+        # 2nd pass: file unindexed children everywhere
+        for entry in @list
+            continue if entry.parser.catcodes
+            util.print "!!! choice #{@} loses catcode because of #{entry.parser}\n"
+            @catcode = false
+            for _, x of @indexed
+                x.push entry
+            @unindexed.push entry
 
-    parse: (lx) ->
-        log "parse Choice on #{lx.peek()}\n"
-        nextTokenKey = lx.peek().getCatcode()
-        parsers = @indexed[nextTokenKey]
-        if parsers then for p in parsers
-            result = p.call lx
-            return result unless result==fail
-        for p in @unindexed
-            result = p.call lx
+        # 3rd pass: sort every list by precedence
+        sortByDecreasingPrecedence = (a,b) -> a.prec<b.prec
+        for _, x of @indexed
+            x.sort sortByDecreasingPrecedence
+            # util.print "Sorted x: #{x}\n"
+        @unindexed.sort sortByDecreasingPrecedence
+
+    parseInternal: (lx, prec) ->
+        nextTokenCatcode = lx.peek().getCatcode()
+        entries = @indexed[nextTokenCatcode] ? @unindexed
+        for entry, i in entries
+            if prec
+                break if entry.prec < prec
+                break if entry.assoc=='left' and entry.prec == prec
+            log "Choice: trying choice #{i+1}/#{entries.length} #{entry.parser} of prec #{entry.prec}\n"
+            result = entry.parser.parse lx
             return result unless result==fail
         return fail
 
     toString: ->
-        return @name if @name
-        allChildren = [ ].concat(@unindexed).concat(@unused)
-        for k, children of @indexed
-            allChildren = allChildren.concat(children)
-        return "Choice(#{allChildren.join ' | '})"
+        return @name ? "Choice(#{(x.parser for x in @list).join ' | '})"
 
 #-------------------------------------------------------------------------------
 # TODO: need to create proper messages
@@ -478,16 +472,13 @@ exports.Maybe = class Maybe extends Parser
         @default  = defaultval ? false
         @parser.addListener @
 
-    reindex: ->
-        return unless @dirty
+    reindexInternal: ->
         @parser.reindex()
-        print "maybe: parser #{@parser} has catcodes #{@parser.catcodes2string()}\n"
         @epsilon  = if @parser.epsilon=='always' then 'always' else 'maybe'
         @catcodes = false # always succeeds -> all catcodes are acceptable
-        super
 
-    parse: (lx) ->
-        result = @parser.call(lx)
+    parseInternal: (lx) ->
+        result = @parser.parse(lx)
         return (if result==fail then @default else result)
 
     toString: -> @name ? "Maybe(#{@parser})"
@@ -518,8 +509,7 @@ exports.List = class List extends Parser
         @primary.addListener @
         @dirty = true
 
-    reindex: ->
-        return @ unless @dirty
+    reindexInternal: ->
         @primary.reindex()
         @epsilon = if @canBeEmpty then 'maybe' else @primary.epsilon
         @catcodes = @primary.catcodes # can be false
@@ -527,17 +517,14 @@ exports.List = class List extends Parser
             if @catcodes and @separator?.catcodes
                 @catcodes = @catcodes.concat @separator.catcodes
             else @catcodes = false
-        return super
 
-    parse: (lx) ->
+    parseInternal: (lx) ->
         results = [ ]
         loop
-            p = @primary.call(lx)
+            p = @primary.parse(lx)
             if p==fail then break
             results.push p
-            if @separator? and @separator.call(lx)==fail then break
-            log "#{@} again\n"
-        log "#{@} done, #{results.length} elements\n" if results.length>0
+            if @separator? and @separator.parse(lx)==fail then break
 
         return fail if not @canBeEmpty and results.length==0
         return results
@@ -548,7 +535,7 @@ exports.List = class List extends Parser
 #-------------------------------------------------------------------------------
 #
 #-------------------------------------------------------------------------------
-exports.wrap = (x...) -> new Wrap x...
+exports.wrap = wrap = (x...) -> new Wrap x...
 exports.Wrap = class Wrap extends Parser
     constructor: (parser) ->
         super
@@ -556,7 +543,7 @@ exports.Wrap = class Wrap extends Parser
 
     notify: -> @catcodes = @parser.catcodes; super
 
-    parse: (lx) -> log "lx in wrap=#{lx}\n"; return @parser.call lx
+    parseInternal: (lx) -> return @parser.parse lx
 
     setParser: (parser) ->
         @parser = lift parser
@@ -564,12 +551,10 @@ exports.Wrap = class Wrap extends Parser
         @notify()
         return @
 
-    reindex: ->
-        return @ unless @dirty
+    reindexInternal: ->
         @parser.reindex()
         for field in ['catcodes', 'epsilon']
             @[field] = @parser[field]
-        return super
 
     toString: -> @name ? "Wrap(#{@parser})"
 
@@ -603,6 +588,8 @@ exports.Wrap = class Wrap extends Parser
 # * 'list' where each parser record appears exactly once, for easy reindexing.
 #
 # TODO: transformers should be applied on all intermediate sub-expressions.
+# TODO: marge sets and findParser with Choice, by adding a prec parameter
+# to Choice.parse.
 #-------------------------------------------------------------------------------
 exports.expr = (x...) -> new Expr x...
 exports.Expr = class Expr extends Parser
@@ -611,10 +598,12 @@ exports.Expr = class Expr extends Parser
     constructor: (primary) ->
         super
         @setPrimary primary if primary?
-        @prefix  = { indexed: { }, unindexed: [ ], list: [ ] }
-        @infix   = { indexed: { }, unindexed: [ ], list: [ ] }
-        @suffix  = { indexed: { }, unindexed: [ ], list: [ ] }
-        @catcodes    = { }
+        @prefix   = choice()
+        #@infix    = choice()
+        @suffix   = choice()
+        @catcodes = { }
+        @pstore   = { }
+        @prefix.addListener @
 
     # TODO: support key update if expression parsers eventually support catcodes.
     setPrimary: (primary) ->
@@ -623,177 +612,128 @@ exports.Expr = class Expr extends Parser
         @notify()
         return @
 
-    reindex: ->
-        return @ unless @dirty
+    reindexInternal: ->
+        @prefix.reindex()
         @primary.reindex()
         if @primary.epsilon
-            print "Cannot build an expression parser around an epsilon-production primary parser"
-
-        for setname in ['prefix', 'infix', 'suffix']
-            oldset = @[setname]
-            newset = { indexed: { }, unindexed: [ ], list: oldset.list }
-            for p in oldset.list
-                p.parser.reindex()
-                catcodes = p.parser.catcodes
-                if not catcodes
-                    newset.unindexed.push p
-                else for k of catcodes
-                    (newset.indexed[k] ?= [ ]).push p
-            @[setname] = newset
-
-            precSort = (a,b) -> a.prec>b.prec
-            newset.unindexed.sort precSort
-            if newset.unindexed.length>0 then for k, list of newset.indexed
-                newset.indexed[k] = list.concat newset.unindexed
-            for k, list of newset.indexed
-                list.sort precSort
-            @[setname] = newset
-
-        if not @primary.catcodes or @prefix.unindexed.length>0 then @catcodes=false
-        else
+            @error "Cannot build an expression parser around epsilon primary parser"
+        if @primary?.catcodes and @prefix.catcodes
             @catcodes = { }
-            (@catcodes[k] = true) for k of @primary.catcodes
-            (@catcodes[k] = true) for k of @prefix
-        return super
+            (@catcodes[cc]=true) for cc of p.catcodes for p in [@primary,@prefix]
+        else @keys = false
 
-    addPrefix: (x) -> @add 'prefix', x
-    addInfix:  (x) -> @add 'infix',  x
-    addSuffix: (x) -> @add 'suffix', x
+    # TODO add assoc support; need some modification in choice::add()
+    # TODO handle flat infix ops
+    addPrefix: (x) ->
+        x.parser = lift(x.parser)
+        wp = wrap(x.parser).setBuilder((r) -> [x, r])
+        @prefix.add x.prec, wp
 
-    # add a rule to the expression parser.
-    # set: 'prefix', 'infix' or 'suffix'.
-    # x: object with fields parser, prec, builder.
-    # For infix operators it should also have assoc.
-    # prec defaults to 50, assoc defaults to 'left'.
-    add: (setname, x)->
-        log("adding #{setname} operator #{x}\n")
-        set = @[setname]
-        @error "missing builder" unless x.builder
-        x.parser = lift x.parser
-        x.prec ?= 50
-        x.assoc ?= 'left' if setname == 'infix'
-        set.list.push x
-        @notify()
-        return @
+    addInfix:  (x) ->
+        x.assoc ?= 'left'
+        x.parser = lift(x.parser)
+        x.kind = 'infix'
+        wp = wrap(x.parser).setBuilder((r) -> [x, r])
+        @suffix.add x.prec, wp
 
-    parse: (lx, prec) ->
+    addSuffix: (x) ->
+        x.parser = lift(x.parser)
+        x.kind = 'suffix'
+        wp = wrap(x.parser).setBuilder((r) -> [x, r])
+        @suffix.add x.prec, wp
+
+    parseInternal: (lx, prec) ->
         prec ?= 0
-        log "parsing starts at precedence #{prec}\n"
+        log "Expr parsing starts at precedence #{prec}\n"
         e = @parsePrefix lx, prec
         return fail if e==fail
-        again = true
-        while again
-            again = false
+        while e2 isnt fail
             e2 = @parseSuffix lx, e, prec
-            if e2 != fail then e=e2; again=true; log "suffix success\n"
-            e2 = @parseInfix  lx, e, prec
-            if e2 != fail then e=e2; again=true; log "infix success\n"
-        @error "expr fucked up" if e==fail
-        log "parsing done, e=#{e}\n"
+            if e2 is fail then break
+            else e=e2
+        log "Expr parsing done, e=#{e}\n"
         return e
 
     parsePrefix: (lx, prec) ->
-        log "prefix\n"
-        { p, op } = @findParser @prefix, lx, prec
-        log "prefix op candidate: #{op}\n"
+        log "Expr prefix at prec #{prec}?\n"
+        [ p, op ] = @prefix.parse lx, prec
         if p
-            e = @call lx, p.prec
+            e = @parse lx, p.prec
             return @partialBuild p, op, e
         else
-            log "primary, then.\n"
-            return @primary.call lx
+            log "Expr no prefix at prec #{prec}; primary, then.\n"
+            return @primary.parse lx
 
-
-    parseInfix:  (lx, e, prec) ->
-        log "infix\n"
-        { p, op } = @findParser @infix, lx, prec
-        return fail unless p
-
-        # TODO: handle operator families, such as a<b>c==d!=e<=f>=g
-        if p.assoc == 'flat'
-            operands  = [e]
-            operators = [op]
-            loop
-                e2 = @call lx, p.prec
-                operands.push e2
-                op2 = p.parser.call lx, p.prec
-                break if op2 == fail
-                operators.push op2
-            return @partialBuild p, operands, operators
-
-        else if p.assoc == 'none' and p.prec == prec
-            # TODO: I don't really know what i'm doing here
-            log "Warning, non-associative operator can't resolve precedence\n"
-            return fail
-
-        else
-            log "parsed operator #{lx.peek().v} (#{p.prec}) because current precedence was #{prec}\n"
-            log "about to parse e2, next is #{lx.peek()}\n"
-            e2 = @call lx, p.prec
-            # TODO: undo & return fail if e2 fails?
-            log "e2=#{e2}\n"
-            return @partialBuild p, e, op, e2
+#     parseInfix:  (lx, e1, prec) ->
+#         log "Expr infix at prec #{prec}?\n"
+#         [ p, op ] = @infix.parse lx, prec
+#         return fail unless p
+#         log "Expr infix op found at prec #{prec}\n"
+#         e2 = @parse lx, p.prec
+#         if e2 is fail
+#             # TODO: undo & return fail if e2 fails?
+#             @error "parsing error after infix operator #{op}"
+#         #log "e2=#{e2}\n"
+#         return @partialBuild p, e1, op, e2
 
     parseSuffix: (lx, e, prec) ->
-        log "suffix\n"
-        { p, op } = @findParser @suffix, lx, prec
+        log "Expr infix/suffix at prec #{prec}?\n"
+        [ p, op ] = @suffix.parse lx, prec
         return fail unless p
-        return @partialBuild p, e, op
+        log "Expr #{p.kind} op #{op} found at prec #{prec}\n"
+        if p.kind is 'infix'
+            p_prec = p.prec
+            if p.assoc=='left' then p_prec++
+            else if p.assoc=='flat'
+                @error "flat infix operators not implemented"
+            e2 = @parse lx, p_prec
+            if e2 is fail
+                # TODO: undo & return fail if e2 fails?
+                @error "parsing error after infix operator #{op}"
+            return @partialBuild p, e, op, e2
+        else # p.kind is 'suffix'
+            return @partialBuild p, e, op
 
-    # Find an op parser of precedence at least 'prec', within 'set',
-    # which parses successfully the token stream 'lx'.
-    # Return a record with fields 'p' the winning parser, and 'op'
-    # the result of calling parser 'p'
-    # (the parser had to be called, to heck that it wouldn't return fail)
-    findParser: (set, lx, prec) ->
-        log("find a parser for #{lx.peek()}\n")
-        candidates = set.indexed[lx.peek().getCatcode()] or set.unindexed
-        log("candidates = #{set.indexed}\n")
-        if candidates
-            for p in candidates
-                break if p.prec < prec
-                break if p.assoc == 'left' and p.prec == prec
-                op = p.parser.call lx
-                return { p, op } if op != fail
-        log("nothing found\n")
-        return { p:false, op:fail }
-
+    # TODO: add transformers
     partialBuild: (p, args...) ->
-        log "pbuild #{args}, "
-        r = p.builder(args...)
-        log "result = #{r}\n"
+        log "Expr pbuild #{args}, "
+        r = p.builder args...
+        log "Expr pbuild result = #{r}\n"
         return r
 
     toString: -> @name ? "Expr(#{@primary}...)"
 
 # Only succeed if the next token is preceded by some spacing.
 class Space extends Parser
+    constructor: -> super; @dirty=false
     typename: "Space"
     epsilon:  'always'
     catcodes: false
-    parse: (lx) -> return (if lx.peek().s then true else fail)
+    parseInternal: (lx) -> return (if lx.peek().s then true else fail)
 exports.space = new Space()
 
 # Only succeed if the next token is NOT preceded by some spacing.
 class NoSpace extends Parser
+    constructor: -> super; @dirty=false
     typename: "NoSpace"
     alwaysEpsilon: true
     epsilon:  'always'
     catcodes: false
-    parse: (lx) -> return (if lx.peek().s then fail else true)
+    parseInternal: (lx) -> return (if lx.peek().s then fail else true)
 exports.noSpace = new NoSpace()
 
 # Neutral element: always succeed without consuming any token.
 class One extends Parser
+    constructor: -> super; @dirty=false
     typename: "One"
     epsilon: 'always'
     catcodes: false
-    parse: -> null
+    parseInternal: -> null
 exports.one = new One()
 
 # Absorbing element: always fail
 exports.zero = lift -> fail
 
 exports.named = (name, parser) ->
-    parser.name = name + "/" + parser.id
+    parser.name = name
     return parser
