@@ -2,13 +2,7 @@
 # Grammar generator
 #
 
-util = require 'util'
-
-enableLogs = false
-#enableLogs = true
-if enableLogs then log = util.print else log = ->
-
-log2=util.print
+L = require './log'
 
 this.exports = this unless process?
 
@@ -27,12 +21,13 @@ lastUid=1
 #  * functions are lifted into parsers.
 #-------------------------------------------------------------------------------
 lift = exports.lift = (x) ->
-    return x if x instanceof Parser
-    return new Sequence(x...) if x instanceof Array
+    return     x                 if x instanceof Parser
+    return new Wrap(x...)        if x instanceof Array and x.length==1
+    return new Sequence(x...)    if x instanceof Array
     return new LiftedFunction(x) if x instanceof Function
-    return     keyword(x) if typeof x == 'string'
-    return     one  if x == 1
-    return     zero if x == 0
+    return     keyword(x)        if typeof x is 'string'
+    return     one               if x == 1
+    return     zero              if x == 0
     throw  new Error "null argument to parser" unless x
     throw  new Error "Parser expected, got #{x.toString()}"
 
@@ -99,22 +94,19 @@ exports.Parser = class Parser
                 @error "token stream expected"
 
         prefix = if @dirty then "[?]" else if @catcodes then "[+]" else "[-]"
-        ind = ("|  " for _ in [0..callNest]).join ""
-        log2("#{ind}? #{prefix} #{@toShortString(80)}, next token = #{lx.peek()}\n")
+        L.logindent('pcall', "? #{prefix} #{@toShortString(80)}, next token = #{lx.peek()}")
 
         if @dirty then @reindex()
 
-        callNest++
         x = @parseInternal(lx, args...)
-        callNest--
 
         if x==fail
-            log2("#{ind}- #{@toShortString()} failed on #{lx.peek().getCatcode()}.\n")
+            L.logdedent('pcall', "- #{@toShortString()} failed on #{lx.peek().getCatcode()}.")
             return fail
         else
             if @builder? then x = @builder x
             (x = t(x)) for t in @transformers
-            log2("#{ind}+ #{@toShortString()} succeeded, returned '#{x}'.\n")
+            L.logdedent('pcall', "+ #{@toShortString()} succeeded, returned '#{x}'.")
             return x
 
     # Internal parsing method: return either a result or `fail', by consumming
@@ -143,13 +135,12 @@ exports.Parser = class Parser
 
     reindex: ->
         return @ unless @dirty
-        #ind = (".  " for _ in [0..reindexNest]).join("")
-        #util.print "#{ind}<reindex '#{@toShortString()}'>\n"
-        #reindexNest++
+
+        L.logindent 'reindex', "/ reindex '#{@toShortString()}'"
         @reindexInternal()
         @dirty=false
-        #reindexNest--
-        #util.print "#{ind}</reindex '#{@toShortString()}', catcodes=#{@catcodes2string()}>\n"
+        L.logdedent 'reindex',
+            "\\ reindex '#{@toShortString()}', catcodes=#{@catcodes2string()}"
         return @
 
     # Perform all operations required to compute this parser's set of catcodes,
@@ -329,7 +320,7 @@ exports.Sequence = class Sequence extends Parser
                     @epsilon = false
                     break
             else
-                util.print "!!! sequence #{@} loses catcode because of #{child}\n"
+                L.log 'algo', "Sequence #{@} loses catcode because of #{child}!"
                 @catcodes = false
                 break
 
@@ -337,18 +328,18 @@ exports.Sequence = class Sequence extends Parser
         result   = []
         bookmark = lx.save()
         for child, i in @children
-            log "Sequence child ##{i}\n"
+            L.log 'sequence', "Sequence child ##{i}"
             x = child.parse(lx)
             if x == fail
                 if true # @backtrack or i==0
-                    log ">>>> BACKTRACKING FROM #{lx.peek()} TO " if i>0
+                    logPrevToken = lx.peek()
                     lx.restore bookmark
-                    log "#{lx.peek()} in #{@toShortString()} <<<<<\n" if i>0
+                    L.log 'sequence', ">>>> BACKTRACKING FROM #{
+                        logPrevToken} TO #{lx.peek()} in #{@toShortString()} <<<<<" if i>0
                     return fail
                 else
                     @error "failed on element ##{i}"
             else result.push x
-            #rl=result.length; log "result of child #{rl}: #{result[rl-1]}\n"
         return result
 
     toString: -> @name ? "Sequence(#{@children.join ', '})"
@@ -399,7 +390,6 @@ exports.Choice = class Choice extends Parser
             if typeof x == 'number'
                 prec = x
                 x = precsAndChildren[i++]
-            #util.print "adding parser #{x} in choice\n"
             parser = lift x
             parser.addListener @
             @list.push { parser; prec }
@@ -431,7 +421,7 @@ exports.Choice = class Choice extends Parser
         # 2nd pass: file unindexed children everywhere
         for entry in @list
             continue if entry.parser.catcodes
-            util.print "!!! choice #{@} loses catcode because of #{entry.parser}\n"
+            L.log 'algo', "#{@} loses catcode because of #{entry.parser}!"
             @catcode = false
             for _, x of @indexed
                 x.push entry
@@ -441,7 +431,6 @@ exports.Choice = class Choice extends Parser
         sortByDecreasingPrecedence = (a,b) -> a.prec<b.prec
         for _, x of @indexed
             x.sort sortByDecreasingPrecedence
-            # util.print "Sorted x: #{x}\n"
         @unindexed.sort sortByDecreasingPrecedence
 
     parseInternal: (lx, prec) ->
@@ -451,7 +440,10 @@ exports.Choice = class Choice extends Parser
             if prec
                 break if entry.prec < prec
                 break if entry.assoc=='left' and entry.prec == prec
-            log "Choice: trying choice #{i+1}/#{entries.length} #{entry.parser} of prec #{entry.prec}\n"
+            if i>0
+                L.log 'algo', "#{@} didn't succeed with first candidate on  #{lx.peek}"
+            L.log 'choice',
+                "trying choice #{i+1}/#{entries.length} #{entry.parser} of prec #{entry.prec}"
             result = entry.parser.parse lx
             return result unless result==fail
         return fail
@@ -644,43 +636,31 @@ exports.Expr = class Expr extends Parser
 
     parseInternal: (lx, prec) ->
         prec ?= 0
-        log "Expr parsing starts at precedence #{prec}\n"
+        L.logindent 'expr', "parsing starts at precedence #{prec}"
         e = @parsePrefix lx, prec
         return fail if e==fail
         while e2 isnt fail
             e2 = @parseSuffix lx, e, prec
             if e2 is fail then break
             else e=e2
-        log "Expr parsing done, e=#{e}\n"
+        L.logdedent 'expr', "parsing done at prec #{prec}, e=#{e}"
         return e
 
     parsePrefix: (lx, prec) ->
-        log "Expr prefix at prec #{prec}?\n"
+        L.log 'expr', "prefix at prec #{prec}?"
         [ p, op ] = @prefix.parse lx, prec
         if p
             e = @parse lx, p.prec
             return @partialBuild p, op, e
         else
-            log "Expr no prefix at prec #{prec}; primary, then.\n"
+            L.log 'expr', "no prefix at prec #{prec}; primary, then."
             return @primary.parse lx
 
-#     parseInfix:  (lx, e1, prec) ->
-#         log "Expr infix at prec #{prec}?\n"
-#         [ p, op ] = @infix.parse lx, prec
-#         return fail unless p
-#         log "Expr infix op found at prec #{prec}\n"
-#         e2 = @parse lx, p.prec
-#         if e2 is fail
-#             # TODO: undo & return fail if e2 fails?
-#             @error "parsing error after infix operator #{op}"
-#         #log "e2=#{e2}\n"
-#         return @partialBuild p, e1, op, e2
-
     parseSuffix: (lx, e, prec) ->
-        log "Expr infix/suffix at prec #{prec}?\n"
+        L.log 'expr', "infix/suffix at prec #{prec}?"
         [ p, op ] = @suffix.parse lx, prec
         return fail unless p
-        log "Expr #{p.kind} op #{op} found at prec #{prec}\n"
+        L.log 'expr', "#{p.kind} op #{op} found at prec #{prec}"
         if p.kind is 'infix'
             p_prec = p.prec
             if p.assoc=='left' then p_prec++
@@ -696,9 +676,8 @@ exports.Expr = class Expr extends Parser
 
     # TODO: add transformers
     partialBuild: (p, args...) ->
-        log "Expr pbuild #{args}, "
         r = p.builder args...
-        log "Expr pbuild result = #{r}\n"
+        L.log 'expr', "partialBuid(#{args.join ', '}) = #{r}"
         return r
 
     toString: -> @name ? "Expr(#{@primary}...)"

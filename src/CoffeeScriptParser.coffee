@@ -347,7 +347,7 @@ cs.primary = gg.named 'primary-expr', gg.choice(
     cs.parentheses,
     cs.paramlessFunc,
     cs.at,
-    #cs.object # low precedence, it's ambiguous
+    cs.object # low precedence, it's ambiguous
 )
 
 cs.expr.setPrimary cs.primary
