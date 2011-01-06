@@ -159,7 +159,7 @@ cs.exprOrSplat = gg.sequence(
     if splat then tree 'Op', '...', expr else expr
 
 # function args with explicit parentheses
-cs.argumentsInParentheses = gg.sequence(
+cs.argumentsWithParentheses = gg.sequence(
     gg.noSpace, '(', gg.list(cs.exprOrSplat, ',', "canBeEmpty"), ')'
 ).setBuilder(2)
 
@@ -168,17 +168,15 @@ cs.argumentsWithoutParentheses = gg.sequence(
     gg.space, gg.list(cs.exprOrSplat, ',')
 ).setBuilder(1)
 
+# Disabled: both forms have different precedences
 # function args
-cs.arguments = gg.choice(
-    cs.argumentsInParentheses,
-    cs.argumentsWithoutParentheses
-)
+#cs.arguments = gg.choice(
+#    cs.argumentsWithParentheses,
+#    cs.argumentsWithoutParentheses
+#)
 
 # super invocation, with or without arguments
-cs.super = gg.sequence("super", gg.maybe cs.arguments).setBuilder (x) ->
-    [_, args] = x
-    if args then tree 'Call', (tree 'Super'),  args
-    else tree 'Super'
+cs.super = gg.lift("super").setBuilder -> tree 'Super'
 
 
 # expressions starting with parentheses: normal parentheses and lambdas
@@ -237,9 +235,8 @@ cs.bracketAccessor = gg.sequence(
     ']'
 ).setBuilder (x) ->
     [_, _, a, rest, _] = x
-    if rest then [op, b] = rest; print "oui"; r = [ a, op, b ]
+    if rest then [op, b] = rest; r = [ a, op, b ]
     else r = [ a ]
-    print "bracketAccessor.builder(#{x}) = #{r}\n"
     return r
 
 cs.field = gg.choice(gg.id, gg.anyKeyword)
@@ -440,16 +437,17 @@ for [adder, template, parsers...] in regularOperators
         adder descr
 
 #prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], [body]
-suffix parser:cs.arguments,   prec:30, builder:(f, args) -> tree "Call", f, args
+suffix parser:cs.argumentsWithParentheses, prec:200, builder:(f, args) -> tree "Call", f, args
+suffix parser:cs.argumentsWithoutParentheses,   prec:10, builder:(f, args) -> tree "Call", f, args
 suffix parser:cs.whileLine,   prec:20, builder:(x, w) -> tree "While", w[0], w[1], [x]
-suffix parser:cs.dotAccessor, prec:90, builder:(x, i) -> tree "Accessor", x, tree "Value", i
+infix parser:'if',            prec:20, assoc:'left', builder:(a,_,b) -> tree 'If', b, [a]
+infix parser:'unless',        prec:20, assoc:'left', builder:(a,_,b) -> tree 'If', (tree 'Op', '!', b), [a]
+suffix parser:cs.dotAccessor, prec:90, builder:(x, i) -> tree "Accessor", x, (tree 'String', i)
 suffix parser:cs.bracketAccessor, prec:90, builder:(x, i) ->
     [ a, op, b ] = i
     return tree "Accessor", x, a unless op
     return tree "RangeAccessor", x, op, a, b
 
-infix parser:'if',     prec:20, assoc:'left', builder:(a,_,b) -> tree 'If', b, [a]
-infix parser:'unless', prec:20, assoc:'left', builder:(a,_,b) -> tree 'If', (tree 'Op', '!', b), [a]
 
 # main parsing function
 cs.parse = (parser, src) ->

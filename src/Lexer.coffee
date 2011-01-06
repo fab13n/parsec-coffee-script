@@ -1,9 +1,6 @@
-{ print, error, inspect } = require 'util'
-
 this.exports = this unless process?
 
-#log = ->
-log = print
+L = require './log'
 
 OP_CHARS = /[~!@$%^&*()\-=+[\]{}|;:,.<>\/?]/
 NUMBER   = /^(0x[0-9a-fA-F]+)|(([0-9]+(\.[0-9]+)?|\.[0-9]+)(e[+\-]?[0-9]+)?)/
@@ -133,7 +130,7 @@ exports.Lexer = class Lexer
     # Debug trace helper
     #---------------------------------------------------------------------------
     pWhere: (msg) ->
-        log "#{msg or ''} [#{@i} '#{@src[@i..@i+5].replace( /\n/g,'\\n')}...']\n"
+        L.log 'lexer', "#{msg or ''} [#{@i} '#{@src[@i..@i+5].replace( /\n/g,'\\n')}...']"
     #---------------------------------------------------------------------------
     # Perform one step of tokenization..
     # One step of processing can produce more than one token:
@@ -537,7 +534,7 @@ exports.Stream = class Stream
     #---------------------------------------------------------------------------
     peek: (n) ->
         n ?= 1
-        # log  "? peek #{@tokens[@readIndex+n]}\n"
+        # L.log 'lexer', "? peek #{@tokens[@readIndex+n]}\n"
         return @tokens[@index+n] or @eof
 
     #---------------------------------------------------------------------------
@@ -547,7 +544,7 @@ exports.Stream = class Stream
         n ?= 1
         result = @peek(n)
         for tok in @tokens[@index+1 .. @index+n]
-                log ">>> consumed #{tok.t} #{tok.v ? ''}\n"
+                L.log 'lexer', ">>> consumed #{tok.t} #{tok.v ? ''}"
                 if (tok_t=tok.t) == 'indent' or tok_t == 'dedent'
                     @currentIndentation = tok.v
         @index += n

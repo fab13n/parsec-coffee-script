@@ -441,7 +441,8 @@ exports.Choice = class Choice extends Parser
                 break if entry.prec < prec
                 break if entry.assoc=='left' and entry.prec == prec
             if i>0
-                L.log 'algo', "#{@} didn't succeed with first candidate on  #{lx.peek}"
+                L.log 'algo', "#{@} didn't succeed with first candidate #{
+                    entries[0].parser} on #{lx.peek()}, trying with #{entry.parser}"
             L.log 'choice',
                 "trying choice #{i+1}/#{entries.length} #{entry.parser} of prec #{entry.prec}"
             result = entry.parser.parse lx
@@ -638,7 +639,9 @@ exports.Expr = class Expr extends Parser
         prec ?= 0
         L.logindent 'expr', "parsing starts at precedence #{prec}"
         e = @parsePrefix lx, prec
-        return fail if e==fail
+        if e is fail
+            L.logdedent 'expr', "parsing failed"
+            return fail
         while e2 isnt fail
             e2 = @parseSuffix lx, e, prec
             if e2 is fail then break

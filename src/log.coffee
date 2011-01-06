@@ -23,8 +23,6 @@ log = exports.log = (mod, msg) ->
     unless longestModLength
         longestModLength = 0
         longestModLength = l for m of modules when (l=m.length)>longestModLength
-        u.print "longestModLength = #{longestModLength}\n"
-
     padding = "                 "[...longestModLength-mod.length]
 
     # output
