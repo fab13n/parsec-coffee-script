@@ -299,7 +299,31 @@ src.if4 = """
     doit() if cond1 if cond2
 """
 
-ast.if4
+ast.if4 = [
+    (tree 'If', (tree 'Id', "cond2"), [
+        (tree 'If', (tree 'Id', "cond1"), [
+            (tree 'Call', (tree 'Id', "doit"), [ ] )])])]
+
+src.if5 = """
+    f arg if cond
+"""
+
+ast.if5 = [
+    (tree 'If', (tree 'Id', "cond"), [
+        (tree 'Call', (tree 'Id', "f"), [
+            (tree 'Id', "arg") ] )])]
+
+src.if6 = """
+    f arg1, arg2 if cond
+"""
+
+ast.if6 = [
+    (tree 'If', (tree 'Id', "cond"), [
+        (tree 'Call', (tree 'Id', "f"), [
+            (tree 'Id', "arg1"),
+            (tree 'Id', "arg2") ])])]
+
+
 
 src.string1 = """
     x = "string"

@@ -158,14 +158,33 @@ cs.exprOrSplat = gg.sequence(
     [expr, splat] = x
     if splat then tree 'Op', '...', expr else expr
 
+buildSplat = (x) ->
+    [expr, splat] = x
+    if splat then tree 'Op', '...', expr else expr
+
 # function args with explicit parentheses
 cs.argumentsWithParentheses = gg.sequence(
-    gg.noSpace, '(', gg.list(cs.exprOrSplat, ',', "canBeEmpty"), ')'
+    gg.noSpace,
+    '(',
+    gg.list(
+        gg.sequence(
+            cs.expr,
+            gg.maybe '...'
+        ).setBuilder(buildSplat)
+    ',',
+    'canbeempty'),
+    ')'
 ).setBuilder(2)
 
 # function args without parentheses
 cs.argumentsWithoutParentheses = gg.sequence(
-    gg.space, gg.list(cs.exprOrSplat, ',')
+    gg.space,
+    gg.list(
+        gg.sequence(
+            gg.wrap(cs.expr, 30),
+            gg.maybe '...'
+        ).setBuilder(buildSplat)
+    ','),
 ).setBuilder(1)
 
 # Disabled: both forms have different precedences
@@ -322,6 +341,7 @@ cs.interpString = gg.sequence(
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
 cs.primary = gg.named 'primary-expr', gg.choice(
+    200,
     (gg.wrap gg.number).setBuilder (x) -> tree 'Number', x
     (gg.wrap gg.id)    .setBuilder (x) -> tree 'Id', x
     #gg.regexp,
@@ -333,18 +353,20 @@ cs.primary = gg.named 'primary-expr', gg.choice(
     gg.wrap("false").setBuilder(-> tree 'False'),
     gg.wrap("break").setBuilder(-> tree 'Break'),
     gg.wrap("continue").setBuilder(-> tree 'Continue'),
-    cs.if,
     cs.try,
-    cs.while,
     cs.loop,
-    cs.for,
     cs.switch,
     cs.class,
     cs.super,
     cs.parentheses,
     cs.paramlessFunc,
     cs.at,
-    cs.object # low precedence, it's ambiguous
+    190,
+    cs.object, # lower precedence, it's ambiguous with gg.id
+    20,
+    cs.if,
+    cs.while,
+    cs.for,
 )
 
 cs.expr.setPrimary cs.primary
@@ -368,6 +390,8 @@ prefix = (r) ->
         r.builder = (_,e) -> tree 'Op', parser, e
     else if typeof builder is 'string'
         r.builder = (_,e) -> tree 'Op', builder, e
+    else if builder not instanceof Function
+        throw new Error "missing builder for prefix #{r}"
     cs.expr.addPrefix r
 
 infix = (r) ->
@@ -376,6 +400,8 @@ infix = (r) ->
         r.builder = (a,_,b) -> tree 'Op', parser, a, b
     else if typeof builder is 'string'
         r.builder = (a,_,b) -> tree 'Op', builder, a, b
+    else if builder not instanceof Function
+        throw new Error "missing builder for infix #{r}"
     cs.expr.addInfix r
 
 suffix = (r) ->
@@ -384,6 +410,8 @@ suffix = (r) ->
         r.builder = (e,_) -> tree 'Op', parser, e
     else if typeof builder is 'string'
         r.builder = (e,_) -> tree 'Op', builder, e
+    else if builder not instanceof Function
+        throw new Error "missing builder for suffix #{r}"
     cs.expr.addSuffix r
 
 suffix parser:[gg.noSpace, '?'], prec:190, builder:'?'
@@ -436,14 +464,25 @@ for [adder, template, parsers...] in regularOperators
         (descr[k] = v) for k, v of template
         adder descr
 
-#prefix parser:'->',           prec:10, builder:(_, body) -> tree "Function", [], [body]
-suffix parser:cs.argumentsWithParentheses, prec:200, builder:(f, args) -> tree "Call", f, args
-suffix parser:cs.argumentsWithoutParentheses,   prec:10, builder:(f, args) -> tree "Call", f, args
-suffix parser:cs.whileLine,   prec:20, builder:(x, w) -> tree "While", w[0], w[1], [x]
-infix parser:'if',            prec:20, assoc:'left', builder:(a,_,b) -> tree 'If', b, [a]
-infix parser:'unless',        prec:20, assoc:'left', builder:(a,_,b) -> tree 'If', (tree 'Op', '!', b), [a]
-suffix parser:cs.dotAccessor, prec:90, builder:(x, i) -> tree "Accessor", x, (tree 'String', i)
-suffix parser:cs.bracketAccessor, prec:90, builder:(x, i) ->
+suffix
+    parser:cs.argumentsWithParentheses, prec:200,
+    builder:(f, args) -> tree "Call", f, args
+suffix
+    parser:cs.argumentsWithoutParentheses, prec:200,
+    builder:(f, args) -> tree "Call", f, args
+suffix
+    parser:cs.whileLine, prec:20,
+    builder:(x, w) -> tree "While", w[0], w[1], [x]
+infix
+    parser:'if', prec:20, assoc:'left',
+    builder:(a,_,b) -> tree 'If', b, [a]
+infix
+    parser:'unless', prec:20, assoc:'left',
+    builder:(a,_,b) -> tree 'If', (tree 'Op', '!', b), [a]
+suffix
+    parser:cs.dotAccessor, prec:90,
+    builder:(x, i) -> tree "Accessor", x, (tree 'String', i)
+suffix parser:cs.bracketAccessor, prec:90, builder: (x, i) ->
     [ a, op, b ] = i
     return tree "Accessor", x, a unless op
     return tree "RangeAccessor", x, op, a, b

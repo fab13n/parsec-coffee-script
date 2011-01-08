@@ -30,7 +30,7 @@ for name in orderedNames
                 print "\t expr primary keys: #{parser.primary.catcodes2string()}\n"
             else
                 print "\t no primary parser\n"
-            for setname in ['prefix', 'infix', 'suffix']
+            for setname in ['prefix', 'suffix']
                 set = parser[setname]
                 print "\t expr #{setname} catcodes: #{set.catcodes2string()}\n"
     else print "cs.#{name} has no key\n"

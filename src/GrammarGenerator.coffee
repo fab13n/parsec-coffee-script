@@ -3,6 +3,7 @@
 #
 
 L = require './log'
+util=require 'util'
 
 this.exports = this unless process?
 
@@ -93,8 +94,9 @@ exports.Parser = class Parser
             else
                 @error "token stream expected"
 
-        prefix = if @dirty then "[?]" else if @catcodes then "[+]" else "[-]"
-        L.logindent('pcall', "? #{prefix} #{@toShortString(80)}, next token = #{lx.peek()}")
+        isIndexed = if @dirty then "[?]" else if @catcodes then "[+]" else "[-]"
+        L.logindent 'pcall',
+            "? #{@toShortString(80)}, next token = #{lx.peek()} #{isIndexed}"
 
         if @dirty then @reindex()
 
@@ -300,6 +302,7 @@ exports.Sequence = class Sequence extends Parser
         super
         @children = (lift child for child in children)
         @dirty=true
+        @backtrack ?= true
 
         # TODO: no need to listen after the epsilon children.
         # However, the number of epsilon children might change,
@@ -307,6 +310,8 @@ exports.Sequence = class Sequence extends Parser
         for child in @children
             child.addListener @
             #break if child.epsilon
+
+    setBacktrack: (@backtrack) -> @
 
     reindexInternal: ->
         @catcodes = { }
@@ -331,14 +336,14 @@ exports.Sequence = class Sequence extends Parser
             L.log 'sequence', "Sequence child ##{i}"
             x = child.parse(lx)
             if x == fail
-                if true # @backtrack or i==0
+                if i isnt 0 and not @backtrack
+                    @error "failed on element ##{i}"
+                else
                     logPrevToken = lx.peek()
                     lx.restore bookmark
                     L.log 'sequence', ">>>> BACKTRACKING FROM #{
                         logPrevToken} TO #{lx.peek()} in #{@toShortString()} <<<<<" if i>0
                     return fail
-                else
-                    @error "failed on element ##{i}"
             else result.push x
         return result
 
@@ -348,29 +353,29 @@ exports.Sequence = class Sequence extends Parser
 #-------------------------------------------------------------------------------
 # Choose between alternative parsers, according to the first token's key.
 #
-# Children parsers are sorted by catcodes.
+# Optionally, takes an extra precedence parameter: children with precedence
+# below this one won't be chosen.
 #
 #-------------------------------------------------------------------------------
 exports.choice = choice = (x...) -> new Choice x...
 exports.Choice = class Choice extends Parser
 
-    # field indexed:    parsers to choose from, indexed by key.
-    #                   key -> list of children, sorted by decreasing precedence.
-    # field indexedP:   children precedences, indexed by key then order.
-    #                   key -> list of precedences, the n-th entry is the precedence
-    #                   of the n-th parser in the corresponding parser list.
-    # field unindexed:  key-less children, sorted by decreasing order.
-    # field unindexedP: precedences of key-less children.
-    # field default:    the optional keyless parser TODO UPDATE
-    # field unused:     parsers which are currently never used (they have zero catcodes)
-    #                   They might get new catcodes later, and notify the Choice combinator,
-    #                   which will then move them in @indexed or @unindexed.
-    # field unusedP:    precedence of unused children.
+    # Children parsers are encapsulated into 'entry' record
+    # structures, with fields 'parser', 'prec' (the precedence of the
+    # child within the choice parser), 'assoc'.
     #
-    # TODO: structurate as Expr: by putting parsers and parsers metadata in a single record,
-    #       by appending unindexed parser to every index,
-    #       by keeping a list.
-    #       if precedence is kept in list, it might be removed from indexes.
+    # @list: unordered list of entries, containing all the children of
+    # this parser. This list is not used directly during parsing, it is used
+    # by @reindex to fill the two other lists.
+    #
+    # @indexed: hashmap of lists of entries, indexed by catcode; each
+    # list is sorted by decreasing precedence. In the list indexed by
+    # catcode 'cc' are all children that might succeed when the next
+    # token has catcode cc, i.e. all the children which have catcode
+    # cc plus all the children for which @catcode is false.
+    #
+    # @unindexed: list of entries for which children have
+    # @catcode==false, ordered by decreasing precedence.
 
     constructor: (precsAndChildren...) ->
         super
@@ -393,7 +398,6 @@ exports.Choice = class Choice extends Parser
             parser = lift x
             parser.addListener @
             @list.push { parser; prec }
-            prec--
         @notify()
         return @
 
@@ -433,13 +437,13 @@ exports.Choice = class Choice extends Parser
             x.sort sortByDecreasingPrecedence
         @unindexed.sort sortByDecreasingPrecedence
 
-    parseInternal: (lx, prec) ->
+    parseInternal: (lx, prec=0) ->
+        util.print "parsing choice at prec #{prec}\n"
         nextTokenCatcode = lx.peek().getCatcode()
         entries = @indexed[nextTokenCatcode] ? @unindexed
         for entry, i in entries
-            if prec
-                break if entry.prec < prec
-                break if entry.assoc=='left' and entry.prec == prec
+            break if entry.prec < prec
+            break if entry.assoc=='left' and entry.prec == prec
             if i>0
                 L.log 'algo', "#{@} didn't succeed with first candidate #{
                     entries[0].parser} on #{lx.peek()}, trying with #{entry.parser}"
@@ -489,7 +493,7 @@ exports.if = (trigger, primary, whenNotTriggered) ->
 
 
 #-------------------------------------------------------------------------------
-# TODO: maybe terminators don't make sense anymore
+#
 #-------------------------------------------------------------------------------
 exports.list = (x...) -> new List x...
 exports.List = class List extends Parser
@@ -530,13 +534,13 @@ exports.List = class List extends Parser
 #-------------------------------------------------------------------------------
 exports.wrap = wrap = (x...) -> new Wrap x...
 exports.Wrap = class Wrap extends Parser
-    constructor: (parser) ->
+    constructor: (parser, @xtraArgs...) ->
         super
         @setParser parser if parser
 
     notify: -> @catcodes = @parser.catcodes; super
 
-    parseInternal: (lx) -> return @parser.parse lx
+    parseInternal: (lx) -> return @parser.parse lx, @xtraArgs...
 
     setParser: (parser) ->
         @parser = lift parser
@@ -618,11 +622,13 @@ exports.Expr = class Expr extends Parser
     # TODO add assoc support; need some modification in choice::add()
     # TODO handle flat infix ops
     addPrefix: (x) ->
+        @error "missing builder" unless x.builder
         x.parser = lift(x.parser)
         wp = wrap(x.parser).setBuilder((r) -> [x, r])
         @prefix.add x.prec, wp
 
     addInfix:  (x) ->
+        @error "missing builder" unless x.builder
         x.assoc ?= 'left'
         x.parser = lift(x.parser)
         x.kind = 'infix'
@@ -630,13 +636,13 @@ exports.Expr = class Expr extends Parser
         @suffix.add x.prec, wp
 
     addSuffix: (x) ->
+        @error "missing builder" unless x.builder
         x.parser = lift(x.parser)
         x.kind = 'suffix'
         wp = wrap(x.parser).setBuilder((r) -> [x, r])
         @suffix.add x.prec, wp
 
-    parseInternal: (lx, prec) ->
-        prec ?= 0
+    parseInternal: (lx, prec=0) ->
         L.logindent 'expr', "parsing starts at precedence #{prec}"
         e = @parsePrefix lx, prec
         if e is fail
@@ -657,7 +663,7 @@ exports.Expr = class Expr extends Parser
             return @partialBuild p, op, e
         else
             L.log 'expr', "no prefix at prec #{prec}; primary, then."
-            return @primary.parse lx
+            return @primary.parse lx, prec
 
     parseSuffix: (lx, e, prec) ->
         L.log 'expr', "infix/suffix at prec #{prec}?"
