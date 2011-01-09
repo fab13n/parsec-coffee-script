@@ -74,34 +74,6 @@ cs.while = gg.sequence(
 cs.loop = gg.sequence('loop', cs.block).setBuilder (x) ->
     tree "While", (tree 'True'), x[1]
 
-# for ... in/of ... when ... by ..., shared by block-prefix and suffix forms
-cs.forLine = gg.sequence(
-    "for", gg.maybe "own", gg.list(cs.expr, ','),
-    gg.choice("in", "of"),
-    cs.expr,
-    gg.choice(
-        gg.sequence(
-            "when", cs.expr, gg.if("by", cs.expr)
-        ).setBuilder( (x) -> guard: x[1], step: x[2] ),
-        gg.sequence(
-            "by", cs.expr, gg.if("when", cs.expr)
-        ).setBuilder( (x) -> guard: x[2], step: x[1] )
-    )
-).setBuilder (x) ->
-    [ _, own, vars, op, collection, { guard, step} ] = x
-    return gg.fail if op=='of' and step
-    return gg.fail if op=='in' and own
-    return gg.fail unless 1 <= vars.length <= 2
-    r = [ op, vars, collection ]
-    r.push guard if guard or step
-    r.push step  if step
-    return r
-
-# block-prefix for statement
-cs.for = gg.sequence(cs.forLine, cs.block).setBuilder (x) ->
-    [t, body] = x
-    return tree t..., body
-
 # then ... or block, shared by if and switch statements
 cs.thenLineOrBlock = gg.choice(
     gg.sequence("then", cs.line).setBuilder(1),
@@ -326,6 +298,8 @@ cs.objectWithBraces = cs.multiLine({
 cs.object = gg.choice(cs.objectWithoutBraces, cs.objectWithBraces)
 #cs.object = cs.objectWithBraces
 
+cs.id     = gg.wrap(gg.id).setBuilder (x) -> tree 'Id', x
+cs.number = gg.wrap(gg.number).setBuilder (x) -> tree 'Number', x
 cs.string = gg.wrap(gg.string).setBuilder((x) -> tree 'String', x)
 
 cs.interpString = gg.sequence(
@@ -338,12 +312,53 @@ cs.interpString = gg.sequence(
     gg.interpEnd
 ).setBuilder 1
 
+# for ... in/of ... when ... by ..., shared by block-prefix and suffix forms
+cs.forLine = gg.sequence(
+    "for", gg.maybe("own"),
+    gg.list(
+        #gg.wrap(cs.expr,200),
+        gg.choice(
+            cs.id,
+            cs.object,
+            cs.array
+        ),
+        ', '
+    ),
+    gg.choice("in", "of"),
+    cs.expr,
+    gg.maybe(
+        gg.choice(
+            gg.sequence(
+                "when", cs.expr, gg.if("by", cs.expr)
+            ).setBuilder( (x) -> guard: x[1], step: x[2] ),
+            gg.sequence(
+                "by", cs.expr, gg.if("when", cs.expr)
+            ).setBuilder( (x) -> guard: x[2], step: x[1])
+        ),
+        { }
+    )
+).setBuilder (x) ->
+    [ _, own, vars, op, collection, {guard, step} ] = x
+    return gg.fail if op=='of' and step
+    return gg.fail if op=='in' and own
+    return gg.fail unless 1 <= vars.length <= 2
+    r = [ vars, op, collection ]
+    r.push guard if guard or step
+    r.push step  if step
+    #print "FORLINE: #{r}\n"
+    return r
+
+# block-prefix for statement
+cs.for = gg.sequence(cs.forLine, cs.nonEmptyBlock).setBuilder (x) ->
+    [t, body] = x
+    return tree 'For', t..., body
+
 # primary expression. prefix / infix / suffix operators will be
 # added in cs.expr over this primary parser.
 cs.primary = gg.named 'primary-expr', gg.choice(
-    200,
-    (gg.wrap gg.number).setBuilder (x) -> tree 'Number', x
-    (gg.wrap gg.id)    .setBuilder (x) -> tree 'Id', x
+    310,
+    cs.number,
+    cs.id,
     #gg.regexp,
     cs.string,
     cs.interpString,
@@ -361,7 +376,7 @@ cs.primary = gg.named 'primary-expr', gg.choice(
     cs.parentheses,
     cs.paramlessFunc,
     cs.at,
-    190,
+    300,
     cs.object, # lower precedence, it's ambiguous with gg.id
     20,
     cs.if,
@@ -482,10 +497,11 @@ infix
 suffix
     parser:cs.dotAccessor, prec:90,
     builder:(x, i) -> tree "Accessor", x, (tree 'String', i)
-suffix parser:cs.bracketAccessor, prec:90, builder: (x, i) ->
-    [ a, op, b ] = i
-    return tree "Accessor", x, a unless op
-    return tree "RangeAccessor", x, op, a, b
+suffix
+    parser:cs.bracketAccessor, prec:90, builder: (x, i) ->
+        [ a, op, b ] = i
+        if op then return tree "RangeAccessor", x, op, a, b
+        else tree "Accessor", x, a
 
 
 # main parsing function

@@ -443,7 +443,7 @@ exports.Choice = class Choice extends Parser
         entries = @indexed[nextTokenCatcode] ? @unindexed
         for entry, i in entries
             break if entry.prec < prec
-            break if entry.assoc=='left' and entry.prec == prec
+            break if entry.assoc=='right' and entry.prec == prec
             if i>0
                 L.log 'algo', "#{@} didn't succeed with first candidate #{
                     entries[0].parser} on #{lx.peek()}, trying with #{entry.parser}"
@@ -553,7 +553,10 @@ exports.Wrap = class Wrap extends Parser
         for field in ['catcodes', 'epsilon']
             @[field] = @parser[field]
 
-    toString: -> @name ? "Wrap(#{@parser})"
+    toString: ->
+        if @name then @name else
+            args = [ @parser, @xtraArgs...]
+            @name ? if @xtraArgs then "Wrap(#{args.join ', '})"
 
 #-------------------------------------------------------------------------------
 # Expression parser generator.

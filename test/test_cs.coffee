@@ -323,7 +323,27 @@ ast.if6 = [
             (tree 'Id', "arg1"),
             (tree 'Id', "arg2") ])])]
 
+src.if7 = 'f(a, b if cond)'
 
+ast.if7 = [
+    (tree 'Call', (tree 'Id', "f"), [
+        (tree 'Id', "a"),
+        (tree 'If',
+            (tree 'Id', "cond"), [
+                (tree 'Id', "b") ])])]
+src.if8 = 'f a, b if cond'
+
+ast.if8 = [
+    (tree 'If',
+        (tree 'Id', "cond"), [
+            (tree 'Call', (tree 'Id', "f"), [
+                (tree 'Id', "a"),
+                (tree 'Id', "b") ])])]
+
+src.for1 = """
+    for i in array
+        body()
+"""
 
 src.string1 = """
     x = "string"
