@@ -59,16 +59,18 @@ cs.whileLine = gg.sequence(
     cs.expr,
     gg.if('when', cs.expr)
 ).setBuilder (x) ->
-    { cond, invert, guard } = x
-    if invert then cond = tree 'Op', '!', cond
-    return tree [cond, guard]
+    [ keyword, cond, guard ] = x
+    if keyword is 'until' then cond = tree 'Op', '!', cond
+    if guard then return [cond, guard]
+    else return [cond]
 
 # block-prefix while/until statement
 cs.while = gg.sequence(
-    cs.whileLine, cs.block
+    cs.whileLine, cs.nonEmptyBlock
 ).setBuilder (x) ->
     [[cond, guard], body] = x
-    tree "While", cond, guard, body
+    if guard then tree "While", cond, guard, body
+    else tree "While", cond, body
 
 # block-prefix loop statement
 cs.loop = gg.sequence('loop', cs.block).setBuilder (x) ->
@@ -322,7 +324,7 @@ cs.forLine = gg.sequence(
             cs.object,
             cs.array
         ),
-        ', '
+        ','
     ),
     gg.choice("in", "of"),
     cs.expr,
@@ -494,6 +496,10 @@ infix
 infix
     parser:'unless', prec:20, assoc:'left',
     builder:(a,_,b) -> tree 'If', (tree 'Op', '!', b), [a]
+suffix
+    parser:cs.forLine, prec:20, builder:(e, f) -> tree 'For', f..., [e]
+suffix
+    parser:cs.whileLine, prec:20, builder:(e, f) -> tree f..., [e]
 suffix
     parser:cs.dotAccessor, prec:90,
     builder:(x, i) -> tree "Accessor", x, (tree 'String', i)

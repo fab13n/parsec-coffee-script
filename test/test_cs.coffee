@@ -345,6 +345,82 @@ src.for1 = """
         body()
 """
 
+ast.for1 = [
+    (tree 'For', [(tree 'Id', "i")], 'in', (tree 'Id', "array"), [
+        (tree 'Call', (tree 'Id', "body"), [] )])]
+
+src.for2 = "a=b for c in d"
+
+ast.for2 = [
+    (tree 'For', [(tree 'Id', "c")], 'in',  (tree 'Id', "d"), [
+        (tree 'Op', '=',  (tree 'Id', "a"),  (tree 'Id', "b"))])]
+
+src.for3 = "a=(b for c in d)"
+
+ast.for3 = [
+    (tree 'Op', '=', (tree 'Id', "a"),
+        (tree 'For', [(tree 'Id', "c")], 'in',  (tree 'Id', "d"), [
+            (tree 'Id', "b"))])]
+
+
+src.for4 = """
+    for own k, v of map when cond
+        f(k, v)
+"""
+
+src.for5 = """
+    for x, i in list by 2
+        f(i, x)
+    for x, i in list by 2 when cond
+        f(i, x)
+    for x, i in list when cond by 2
+        f(i, x)
+    for x, i in list when cond
+        f(i, x)
+"""
+
+src.fail_for1 = "for k, v of map by 42"
+src.fail_for2 = "for own i of in list"
+src.fail_for3 = "for a, b, c of map"
+src.fail_for4 = "for of map"
+
+src.while1 = """
+    while cond
+        body
+"""
+
+ast.while1 = [
+    (tree 'While', (tree 'Id', "cond"), [
+        (tree 'Id', "body")])]
+
+src.while2 = """
+    while cond when guard
+        body
+"""
+
+ast.while2 = [
+    (tree 'While', (tree 'Id', "cond"), (tree 'Id', "guard"), [
+        (tree 'Id', "body")])]
+
+src.while3 = """
+    until cond when guard
+        body
+"""
+
+ast.while3 = [
+    (tree 'While',
+        (tree 'Op', '!', (tree 'Id', "cond")), (tree 'Id', "guard"), [
+            (tree 'Id', "body")])]
+
+src.while4 = """
+    loop
+        body
+"""
+
+ast.while4 = [
+    (tree 'While', (tree 'True'), [
+        (tree 'Id', "body")])]
+
 src.string1 = """
     x = "string"
 """

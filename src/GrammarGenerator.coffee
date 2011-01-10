@@ -96,7 +96,8 @@ exports.Parser = class Parser
 
         isIndexed = if @dirty then "[?]" else if @catcodes then "[+]" else "[-]"
         L.logindent 'pcall',
-            "? #{@toShortString(80)}, next token = #{lx.peek()} #{isIndexed}"
+            "? #{@toShortString(80)}, #{if args[0] then (args[0]+", ") else ''
+            }next token = #{lx.peek()} #{isIndexed}"
 
         if @dirty then @reindex()
 
@@ -432,13 +433,14 @@ exports.Choice = class Choice extends Parser
             @unindexed.push entry
 
         # 3rd pass: sort every list by precedence
+        # TODO: make sure to use a stable sort algorithm,
+        # there's no guarantee in Javascript that array::sort is stable.
         sortByDecreasingPrecedence = (a,b) -> a.prec<b.prec
         for _, x of @indexed
             x.sort sortByDecreasingPrecedence
         @unindexed.sort sortByDecreasingPrecedence
 
     parseInternal: (lx, prec=0) ->
-        util.print "parsing choice at prec #{prec}\n"
         nextTokenCatcode = lx.peek().getCatcode()
         entries = @indexed[nextTokenCatcode] ? @unindexed
         for entry, i in entries

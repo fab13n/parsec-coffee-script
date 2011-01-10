@@ -17,7 +17,7 @@ equal = (a,b) ->
         for i in [0...a.length]
             return false unless equal(a[i], b[i])
         return true
-    else if a instanceof Tree
+    else if a instanceof Tree and b instanceof Tree
         return a.tag==b.tag and equal(a.children, b.children)
     else if not a? and not b?
         return true # don't make a difference between null/undefined / length equality isnt compatible with this

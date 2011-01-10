@@ -1,8 +1,14 @@
 expr:
-	val | struct | op
+	id | array | object | val | struct | op
 
 id:
 	tree 'Id', v:string
+
+array:
+	tree 'Array', expr*
+
+object:
+	tree 'Object', obj_entry*
 
 val:
 	tree 'This'
@@ -17,7 +23,7 @@ val:
 
 struct:
 	tree 'Call', f:expr, args:expr*
-	tree 'Return', expr
+	tree 'Return', expr?
 	tree 'Try', block, exn:id?, catch:block?, finally:block?
 	tree 'While', condition:expr, block
 	tree 'For', vars:(id|array|object)*, op:('in'|'of'|'own'),
@@ -25,8 +31,6 @@ struct:
 	tree 'Switch', expr, case*, else:block?
 	tree 'Function',  params:id*, block, splat_idx:number?
 	tree 'Boundfunc', params:id*, block, splat_idx:number?
-	tree 'Array', expr*
-	tree 'Object', obj_entry*
 	tree 'Break',
 	tree 'Continue',
 	tree 'Access', obj:expr, key:expr
