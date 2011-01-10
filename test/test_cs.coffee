@@ -421,6 +421,23 @@ ast.while4 = [
     (tree 'While', (tree 'True'), [
         (tree 'Id', "body")])]
 
+src.while5 = """
+    x++ while x<y
+"""
+
+# TODO associates at right instead of left
+src.while6 = """
+    expr while cond1 while cond2
+"""
+
+src.while7 = """
+    expr while cond1 while cond2 when guard2
+"""
+
+src.while8 = """
+    (expr while cond1 when guard1) while cond2 when guard2
+"""
+
 src.string1 = """
     x = "string"
 """

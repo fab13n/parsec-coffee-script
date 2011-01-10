@@ -68,9 +68,8 @@ cs.whileLine = gg.sequence(
 cs.while = gg.sequence(
     cs.whileLine, cs.nonEmptyBlock
 ).setBuilder (x) ->
-    [[cond, guard], body] = x
-    if guard then tree "While", cond, guard, body
-    else tree "While", cond, body
+    [ line, body ] = x
+    return tree 'While', line..., body
 
 # block-prefix loop statement
 cs.loop = gg.sequence('loop', cs.block).setBuilder (x) ->
@@ -489,7 +488,7 @@ suffix
     builder:(f, args) -> tree "Call", f, args
 suffix
     parser:cs.whileLine, prec:20,
-    builder:(x, w) -> tree "While", w[0], w[1], [x]
+    builder:(x, w) -> tree "While", w..., [x]
 infix
     parser:'if', prec:20, assoc:'left',
     builder:(a,_,b) -> tree 'If', b, [a]
