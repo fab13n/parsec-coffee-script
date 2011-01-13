@@ -511,7 +511,7 @@ cs.parse = (parser, src) ->
         parser = cs[parser]
     else unless parser instanceof gg.Parser
         throw new Error "bad args"
-    lexer = new lex.Lexer(src, cs.keywords)
+    lexer  = new lex.Lexer(src, cs.keywords)
     stream = new lex.Stream lexer
     # print("\nTokens: \n#{stream.tokens.join('\n')}\n\n")
     parser.parse stream

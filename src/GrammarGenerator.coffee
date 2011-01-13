@@ -736,3 +736,32 @@ exports.zero = lift -> fail
 exports.named = (name, parser) ->
     parser.name = name
     return parser
+
+# Equivalent to PEG's '&': parse like @primary, but doesn't consume any token
+exports.couldParse = (x...) -> new CouldParse(x...)
+exports.CouldParse = class CouldParse extends Parser
+    constructor: (@primary) ->
+        super
+        @epsilon = "always"
+        primary.addListener @
+        @notify()
+
+    reindexInternal: ->
+        @primary.reindex()
+        @keys = @primary.keys
+
+    parseInternal: (lx, args...) ->
+        bookmark = lx.save()
+        result = @primary.parse(lx, args...)
+        lx.restore bookmark
+        return result
+
+# Equivalent to PEG's '!': fail if @primary could parse here,
+# return true otherwise.
+exports.couldntParse = (x...) -> new CouldntParse(x...)
+exports.CouldntParse = class CouldntParse extends CouldParse
+    reindexInternal: -> @keys = false
+    parseInternal: (lx) ->
+        result = super
+        if result == fail then return true else return fail
+    toString: -> "!(" + @primary.toString() + ")"
