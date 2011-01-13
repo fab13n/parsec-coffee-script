@@ -498,6 +498,7 @@ exports.if = (trigger, primary, whenNotTriggered) ->
 #
 #-------------------------------------------------------------------------------
 exports.list = (x...) -> new List x...
+exports.maybeList = (primary, separator) -> new List primary, separator, true
 exports.List = class List extends Parser
     constructor: (primary, separator, @canBeEmpty) ->
         super
