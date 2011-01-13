@@ -256,12 +256,9 @@ exports.Const = class Const extends Parser
 
     parseInternal: (lx) ->
         tok = lx.peek()
-        if tok.t != @t
-            return fail
-        else if @values? and not @values[tok.v]
-            return fail
-        else
-            return lx.next().v
+        return fail if tok.t != @t
+        return fail if @values? and not @values[tok.v]
+        return lx.next().v
 
 # TODO: put in a for loop
 exports.id         = new Const 'id'

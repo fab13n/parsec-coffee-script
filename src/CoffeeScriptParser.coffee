@@ -215,21 +215,15 @@ cs.paramlessFunc = gg.sequence(
     Tag = if arrow=='->' then 'Function' else 'Boundfunc'
     return tree Tag, [ ], body
 
-# Accessor suffix.
-# TODO: handle slices
-cs.bracketAccessor = gg.sequence(
-    gg.noSpace, '[', cs.expr,
-    gg.choice(
-        gg.sequence('...', cs.expr),
-        gg.sequence('..', cs.expr),
-        gg.one
-    ),
+cs.range = gg.sequence(
+    '[',
+    cs.expr,
+    gg.choice('...', '..'),
+    cs.expr,
     ']'
 ).setBuilder (x) ->
-    [_, _, a, rest, _] = x
-    if rest then [op, b] = rest; r = [ a, op, b ]
-    else r = [ a ]
-    return r
+    [_, a, op, b, _] = x
+    tree 'Range', a, op, b
 
 cs.field = gg.choice(gg.id, gg.anyKeyword)
 
@@ -503,11 +497,14 @@ suffix
     parser:cs.dotAccessor, prec:90,
     builder:(x, i) -> tree "Accessor", x, (tree 'String', i)
 suffix
-    parser:cs.bracketAccessor, prec:90, builder: (x, i) ->
-        [ a, op, b ] = i
-        if op then return tree "RangeAccessor", x, op, a, b
-        else tree "Accessor", x, a
-
+    parser:[gg.noSpace, cs.range], prec:90,
+    builder: (x, i) -> tree 'Slice', x, i[1]
+suffix
+    parser:[gg.noSpace, cs.array], prec:90,
+    builder: (x, i) ->
+        arrayElements = i[1].children[0]
+        throw new Error "bad accessor" unless arrayElements.length is 1
+        return tree 'Accessor', x, arrayElements[0]
 
 # main parsing function
 cs.parse = (parser, src) ->
