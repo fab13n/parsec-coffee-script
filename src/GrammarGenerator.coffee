@@ -100,16 +100,19 @@ exports.Parser = class Parser
             }next token = #{lx.peek()} #{isIndexed}"
 
         if @dirty then @reindex()
+        bookmark = lx.save()
 
         x = @parseInternal(lx, args...)
 
-        if x==fail
+        if x is fail
             L.logdedent('pcall', "- #{@toShortString()} failed on #{lx.peek().getCatcode()}.")
+            lx.restore bookmark
             return fail
         else
             if @builder? then x = @builder x
             (x = t(x)) for t in @transformers
             L.logdedent('pcall', "+ #{@toShortString()} succeeded, returned '#{x}'.")
+            lx.restore bookmark if x is fail
             return x
 
     # Internal parsing method: return either a result or `fail', by consumming
@@ -659,16 +662,19 @@ exports.Expr = class Expr extends Parser
 
     parsePrefix: (lx, prec) ->
         L.log 'expr', "prefix at prec #{prec}?"
+        lxpos = lx.save()
         [ p, op ] = @prefix.parse lx, prec
         if p
             e = @parse lx, p.prec
-            return @partialBuild p, op, e
+            return fail if e is fail
+            return @partialBuild p, lx, lxpos, op, e
         else
             L.log 'expr', "no prefix at prec #{prec}; primary, then."
             return @primary.parse lx, prec
 
     parseSuffix: (lx, e, prec) ->
         L.log 'expr', "infix/suffix at prec #{prec}?"
+        lxpos = lx.save()
         [ p, op ] = @suffix.parse lx, prec
         return fail unless p
         L.log 'expr', "#{p.kind} op #{op} found at prec #{prec}"
@@ -681,13 +687,16 @@ exports.Expr = class Expr extends Parser
             if e2 is fail
                 # TODO: undo & return fail if e2 fails?
                 @error "parsing error after infix operator #{op}"
-            return @partialBuild p, e, op, e2
+            return @partialBuild p, lx, lxpos, e, op, e2
         else # p.kind is 'suffix'
-            return @partialBuild p, e, op
+            return @partialBuild p, lx, lxpos, e, op
 
     # TODO: add transformers
-    partialBuild: (p, args...) ->
+    partialBuild: (p, lx, lxpos, args...) ->
         r = p.builder args...
+        if r is fail
+            L.log 'expr', "canceled by builder!"
+            lx.restore lxpos; return fail
         L.log 'expr', "partialBuid(#{args.join ', '}) = #{r}"
         return r
 

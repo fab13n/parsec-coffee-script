@@ -500,11 +500,8 @@ suffix
     parser:[gg.noSpace, cs.range], prec:90,
     builder: (x, i) -> tree 'Slice', x, i[1]
 suffix
-    parser:[gg.noSpace, cs.array], prec:90,
-    builder: (x, i) ->
-        arrayElements = i[1].children[0]
-        throw new Error "bad accessor" unless arrayElements.length is 1
-        return tree 'Accessor', x, arrayElements[0]
+    parser:[gg.noSpace, '[', cs.expr, ']'], prec:90,
+    builder: (x, y) -> tree 'Accessor', x, y[2]
 
 # main parsing function
 cs.parse = (parser, src) ->
