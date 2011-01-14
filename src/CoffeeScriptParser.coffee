@@ -139,13 +139,13 @@ buildSplat = (x) ->
 cs.argumentsWithParentheses = gg.sequence(
     gg.noSpace,
     '(',
-    gg.list(
+    gg.maybeList(
         gg.sequence(
             cs.expr,
             gg.maybe '...'
-        ).setBuilder(buildSplat)
-    ',',
-    'canbeempty'),
+        ).setBuilder(buildSplat),
+        ','
+    ),
     ')'
 ).setBuilder(2)
 
@@ -157,7 +157,8 @@ cs.argumentsWithoutParentheses = gg.sequence(
             gg.wrap(cs.expr, 30),
             gg.maybe '...'
         ).setBuilder(buildSplat)
-    ','),
+        ','
+    ),
 ).setBuilder(1)
 
 # Disabled: both forms have different precedences
@@ -173,7 +174,7 @@ cs.super = gg.lift("super").setBuilder -> tree 'Super'
 
 # expressions starting with parentheses: normal parentheses and lambdas
 cs.parentheses = gg.sequence(
-    '(', gg.list(cs.exprOrSplat, ',', 'canbeempty'), ')',
+    '(', gg.maybeList(cs.exprOrSplat, ','), ')',
     gg.choice(
         ['->', cs.lineOrBlock],
         ['=>', cs.lineOrBlock],
@@ -231,7 +232,7 @@ cs.field = gg.choice(gg.id, gg.anyKeyword)
 cs.dotAccessor = gg.sequence(".", cs.field).setBuilder 1
 
 optionalNewlines = # helper for class MultiLine
-    gg.list(gg.choice(gg.indent, gg.dedent, gg.newline), null, 'canbeempty')
+    gg.maybeList(gg.choice(gg.indent, gg.dedent, gg.newline))
 
 # Support for list of elements which accept arbitrary indentations between
 # them. Used for array elements and function arguments.
