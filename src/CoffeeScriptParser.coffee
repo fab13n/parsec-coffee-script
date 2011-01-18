@@ -298,15 +298,36 @@ cs.id     = gg.wrap(gg.id).setBuilder (x) -> tree 'Id', x
 cs.number = gg.wrap(gg.number).setBuilder (x) -> tree 'Number', x
 cs.string = gg.wrap(gg.string).setBuilder((x) -> tree 'String', x)
 
+cs.regex = gg.sequence(
+    gg.regex,
+    gg.maybe (gg.regexFlags)
+).setBuilder (regex, flags) ->
+    if flags then tree 'Regex', regex, flags else tree 'Regex', regex
+
 cs.interpString = gg.sequence(
-    gg.interpStart,
+    gg.interpStart('"', '"""'),
     gg.list(
         gg.choice(
             gg.sequence(gg.interpEsc, cs.expr, gg.interpUnesc).setBuilder(1),
             cs.string)
-    ).setBuilder((x) -> tree '+', x...),
+    ).setBuilder((x) -> tree 'Op', '+', x...),
     gg.interpEnd
 ).setBuilder 1
+
+cs.interpRegex = gg.sequence(
+    gg.interpStart('///'),
+    gg.list(
+        gg.choice(
+            gg.sequence(gg.interpEsc, cs.expr, gg.interpUnesc).setBuilder(1),
+            gg.wrap(gg.regex).setBuilder (x) -> tree 'String', x)
+    )
+    gg.interpEnd,
+    gg.maybe (gg.regexFlags)
+).setBuilder (x) ->
+    [ _, content, _, flags] = x
+    r = tree 'Op', 'new', (tree 'Id', 'Regex'), (tree 'Op', '+', content...)
+    if flags then r.children.push (tree 'String', flags)
+    return r
 
 # for ... in/of ... when ... by ..., shared by block-prefix and suffix forms
 cs.forLine = gg.sequence(

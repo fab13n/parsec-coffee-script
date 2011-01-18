@@ -1,4 +1,5 @@
 { Lexer } = require('./../src/Lexer')
+{ print } = require 'util'
 
 # Testing code #
 
@@ -15,6 +16,9 @@ test1 =
         9 op
 10 qr
     11 st
+`isbacktick('\\`')`
+regex1 = /foo/i
+regex2 = ///bar#{in}bar///
 '''
 
 print(test1,'\n')
@@ -32,6 +36,6 @@ for t in tokens
             print "WARNING: offset problem with #{t}\n"
 
 for t in tokens
-    print "#{ml.offsetToLine(t.i)}\t#{t}\n"
+    print "#{ml.offsetToLine(t.i)}\t#{t} catcode='#{t.getCatcode()}'\n"
 
-print tokens.join '\t'
+#print tokens.join '\t'

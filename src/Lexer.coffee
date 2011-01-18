@@ -4,6 +4,7 @@ L = require './log'
 
 OP_CHARS = /[~!@$%^&*()\-=+[\]{}|;:,.<>\/?]/
 NUMBER   = /^(0x[0-9a-fA-F]+)|(([0-9]+(\.[0-9]+)?|\.[0-9]+)(e[+\-]?[0-9]+)?)/
+DETAILED_CAT_CODE = { keyword:true; interpStart:true }
 
 #-------------------------------------------------------------------------------
 # Token structure
@@ -17,6 +18,7 @@ NUMBER   = /^(0x[0-9a-fA-F]+)|(([0-9]+(\.[0-9]+)?|\.[0-9]+)(e[+\-]?[0-9]+)?)/
 #      - 'newline' / 'indent' / 'dedent'
 #      - 'javascript'
 #      - 'regex'
+#      - 'regexFlags'
 #      - 'interpStart' / 'interpEnd' / 'interpEsc' / 'interpEnd'
 # * v: optional token value:
 #      - string content when applicable
@@ -26,7 +28,7 @@ NUMBER   = /^(0x[0-9a-fA-F]+)|(([0-9]+(\.[0-9]+)?|\.[0-9]+)(e[+\-]?[0-9]+)?)/
 #-------------------------------------------------------------------------------
 class Token
     constructor: (@t, @v, @i, @s) ->
-    getCatcode: -> if @t=='keyword' then @t+"-"+@v else @t #TODO: temp hack
+    getCatcode: -> if DETAILED_CAT_CODE[@t] then @t+"-"+@v else @t
     toString: ->
         "#{@t}[#{@i}#{if @v then ":'#{@v}'" else ""}#{if @s then ' S' else ''}]"
 
@@ -35,7 +37,7 @@ class Token
 # - alphanumeric keywords are stored as keys, the attached value is true.
 # - punctuation-keywords are stored in arrays as values, the corresponding
 #   key is their first character.
-#   The array is sorted by decreasing word size.
+#   Each array is sorted by decreasing word size.
 #
 # This set is populated with @addKeyword, it allows to differentiate
 # alphanumeric keywords from identifiers, and to recognize multi-characters
@@ -131,6 +133,7 @@ exports.Lexer = class Lexer
     #---------------------------------------------------------------------------
     pWhere: (msg) ->
         L.log 'lexer', "#{msg or ''} [#{@i} '#{@src[@i..@i+5].replace( /\n/g,'\\n')}...']"
+
     #---------------------------------------------------------------------------
     # Perform one step of tokenization..
     # One step of processing can produce more than one token:
@@ -157,7 +160,7 @@ exports.Lexer = class Lexer
         else if src_i == '"'
             return @getInterpolation 'string', '"'
         else if src_i == "'"
-            return [ @getString() ]
+            return [ @getString 'string' ]
         else if src_i.match /[A-Za-z_]/
             return [ @getWord() ]
         else if src_i == '\n'
@@ -165,12 +168,15 @@ exports.Lexer = class Lexer
             @spaced = true
             return x
         else if src_i == '/' and @regexAllowedHere()
-            t = @getInterpolation 'regex', '/'
+            if @src[@i..@i+2] == '///'
+                t = @getInterpolation 'regex', '/'
+            else
+                t = [ @getString 'regex' ]
             if (t2=@getRegexFlags()) then t.push t2
             return t
         else if src_i == '`'
-            return [ @getJavaScript() ]
-        else if src_i.match OP_CHARS # must be after regex, backtick
+            return [ @getString 'javascript' ]
+        else if src_i.match OP_CHARS # must be after regex and backtick
             return [ @getOp() ]
         else if src_i.match /[0-9]/ or @src[@i..@i+1].match /\.[0-9]/
             return [ @getNumber() ]
@@ -258,26 +264,27 @@ exports.Lexer = class Lexer
     # Parse an interpolated string or regex.
     # Return a list of tokens.
     # Arguments
-    #  * type:      type of token to be produced, 'string' or 'regex'
-    #  * delimiter: delimiting character, '"' or '/'
+    #  * type:            type of token to be produced, 'string' or 'regex'
+    #  * delimiterChar:   first delimiting character, '"' or '/'
+    #  * tripleDelimiter: '"""', '///' or false
     #
     # TODO: handle indentation fixing for triple-double-quotes.
     #---------------------------------------------------------------------------
-    getInterpolation: (type, delimiter) ->
-        isTripleString = @src[@i..@i+2] == '"""'
-        results        = [ ]
-        i              = if isTripleString then @i+3 else @i+1
-        j              = i-1
-        interpStarted  = false
+    getInterpolation: (type, delimiterChar) ->
+        tripleDelimiter = if @src[@i]==@src[@i+1]==@src[@i+2] then @src[@i..@i+2] else false
+        results         = [ ]
+        i               = if tripleDelimiter then @i+3 else @i+1
+        j               = i-1
+        interpStarted   = false
         loop
             j++
             @complain "unterminated string" if @len==j
             k=@src[j]
-            continue unless k == delimiter or k == '#'
+            continue unless k == delimiterChar or k == '#'
             continue if @src[j-1] == '\\'
-            if k == delimiter
-                if isTripleString
-                    if @src[j..j+2] == '"""' then @i=j+3 else continue
+            if k == delimiterChar
+                if tripleDelimiter
+                    if @src[j..j+2] == tripleDelimiter then @i=j+3 else continue
                 else @i=j+1
                 # End of string
                 unless i==j and results.length>0
@@ -287,7 +294,7 @@ exports.Lexer = class Lexer
                 # Interpolation
                 braceLevel = 1
                 unless interpStarted
-                    results.push @token 'interpStart', delimiter
+                    results.push @token 'interpStart', tripleDelimiter or delimiterChar
                     interpStarted=true
                 results.push @token type, @src[i...j], i unless i==j
                 @i = j+2 # skip '#{'
@@ -305,20 +312,22 @@ exports.Lexer = class Lexer
                     results = results.concat (x)
                 i = @i; j = i-1
                 results.push @token 'interpUnesc', null, j
-        results.push @token 'interpEnd', delimiter, @i-1 if interpStarted
+        results.push @token 'interpEnd', tripleDelimiter or delimiterChar, @i-1 if interpStarted
         return results
 
     #---------------------------------------------------------------------------
     # Parse a non-interpolated string, either with simple or triple delimiter.
+    # The delimiter character is determined by looking directly at @src[@i].
+    # The token type is passed as parameter.
     # Return a single string token.
     #
     # TODO: check whether/how triple-delims can be escaped within the string.
     #---------------------------------------------------------------------------
-    getString: ->
+    getString: (type) ->
         i         = @i
         delimiter = @src[i]
         content   = null
-        if @src[i..i+2] == "'''" # triple-delimiter string
+        if @src[i]==@src[i+1]==@src[i+2] # triple-delimiter string
             i += 3; j = i
             loop
                 j++ while j<@len and @src[j] != delimiter
@@ -328,25 +337,25 @@ exports.Lexer = class Lexer
                     content = @reindentString @unescape @src[i...j]
                     break
                 else if j == @len
-                    @complain "unterminated string"
+                    @complain "unterminated #{type}"
                 else
                     j += 2
         else # simple-delimiter string
             i++; j=i
             j++ until j>@len or @src[j] == delimiter and @src[j-1] != '\\'
-            @complain "unterminated string" if j == @len
+            @complain "unterminated #{type}" if j == @len
             @i = j+1
             content = @unescape @src[i...j]
-        return @token 'string', content, i
+        return @token type, content, i
 
     #---------------------------------------------------------------------------
-    # Try to fetch regex flags after e regex, return it or null.
+    # Try to fetch regex flags after a regex, return it or null.
     # TODO: Check whether duplicate flags are allowed, filter out if not.
     #---------------------------------------------------------------------------
     getRegexFlags: ->
         return if @spaced
         MAX = 6
-        flags = @src[@i...@i+MAX].match /[imgy]+/
+        flags = @src[@i...@i+MAX].match /[imgy]*/
         len = flags.length
         @complain "too many regex flags" if len==MAX
         return null if len==0
