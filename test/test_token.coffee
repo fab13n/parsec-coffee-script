@@ -17,7 +17,7 @@ test1 =
 10 qr
     11 st
 `isbacktick('\\`')`
-regex1 = /foo/i
+regex1 = /foo/ig
 regex2 = ///bar#{in}bar///
 '''
 
@@ -26,6 +26,7 @@ print(test1,'\n')
 ml = new Lexer test1
 
 ml.keywords.add('++', '--', 'bar')
+ml.keywords.addDetailedCatcode('keyword', 'interpStart')
 
 tokens = ml.tokenize()
 for t in tokens
@@ -36,6 +37,6 @@ for t in tokens
             print "WARNING: offset problem with #{t}\n"
 
 for t in tokens
-    print "#{ml.offsetToLine(t.i)}\t#{t} catcode='#{t.getCatcode()}'\n"
+    print "#{ml.offsetToLine(t.i)}\t#{t} catcode='#{t.catcode}'\n"
 
 #print tokens.join '\t'

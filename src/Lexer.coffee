@@ -4,7 +4,6 @@ L = require './log'
 
 OP_CHARS = /[~!@$%^&*()\-=+[\]{}|;:,.<>\/?]/
 NUMBER   = /^(0x[0-9a-fA-F]+)|(([0-9]+(\.[0-9]+)?|\.[0-9]+)(e[+\-]?[0-9]+)?)/
-DETAILED_CAT_CODE = { keyword:true; interpStart:true }
 
 #-------------------------------------------------------------------------------
 # Token structure
@@ -25,14 +24,17 @@ DETAILED_CAT_CODE = { keyword:true; interpStart:true }
 #      - indentation level for indent/dedent/newline
 # * i: offset at which the token is found in the source string
 # * s: is this token separated from the previous one by some spacing?
+# * catcode
 #-------------------------------------------------------------------------------
 class Token
-    constructor: (@t, @v, @i, @s) ->
-    getCatcode: -> if DETAILED_CAT_CODE[@t] then @t+"-"+@v else @t
+    constructor: (fields) -> (@[k]=v) for k, v of fields
     toString: ->
         "#{@t}[#{@i}#{if @v then ":'#{@v}'" else ""}#{if @s then ' S' else ''}]"
 
 #-------------------------------------------------------------------------------
+#
+# TODO: rename adequately.
+#
 # Registered keywords:
 # - alphanumeric keywords are stored as keys, the attached value is true.
 # - punctuation-keywords are stored in arrays as values, the corresponding
@@ -46,7 +48,11 @@ class Token
 exports.Keywords = class Keywords
     constructor: (words...) ->
         @set = { }
+        @detailedCatcodes = { }
         @add(words...)
+
+    addDetailedCatcode: (catcodes...) ->
+        (@detailedCatcodes[cc]=true) for cc in catcodes
 
     #---------------------------------------------------------------------------
     # Register new keyword(s) for this lexer.
@@ -110,8 +116,9 @@ exports.Lexer = class Lexer
     token: (t, v, i) ->
         i = @i unless i?
         s = @spaced
+        catcode = if @keywords.detailedCatcodes[t] then t+"-"+v else t
         @spaced = false
-        return new Token t, v, i, s
+        return new Token {t, v, i, s, catcode}
 
     #---------------------------------------------------------------------------
     # Return the list of all tokens in @src
@@ -170,8 +177,7 @@ exports.Lexer = class Lexer
         else if src_i == '/' and @regexAllowedHere()
             if @src[@i..@i+2] == '///'
                 t = @getInterpolation 'regex', '/'
-            else
-                t = [ @getString 'regex' ]
+            else t = [ @getString 'regex' ]
             if (t2=@getRegexFlags()) then t.push t2
             return t
         else if src_i == '`'
@@ -355,7 +361,7 @@ exports.Lexer = class Lexer
     getRegexFlags: ->
         return if @spaced
         MAX = 6
-        flags = @src[@i...@i+MAX].match /[imgy]*/
+        flags = @src[@i...@i+MAX].match(/^[imgy]*/)[0]
         len = flags.length
         @complain "too many regex flags" if len==MAX
         return null if len==0

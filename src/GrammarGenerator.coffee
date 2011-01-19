@@ -105,7 +105,7 @@ exports.Parser = class Parser
         x = @parseInternal(lx, args...)
 
         if x is fail
-            L.logdedent('pcall', "- #{@toShortString()} failed on #{lx.peek().getCatcode()}.")
+            L.logdedent('pcall', "- #{@toShortString()} failed on #{lx.peek().catcode}.")
             lx.restore bookmark
             return fail
         else
@@ -443,7 +443,7 @@ exports.Choice = class Choice extends Parser
         @unindexed.sort sortByDecreasingPrecedence
 
     parseInternal: (lx, prec=0) ->
-        nextTokenCatcode = lx.peek().getCatcode()
+        nextTokenCatcode = lx.peek().catcode
         entries = @indexed[nextTokenCatcode] ? @unindexed
         for entry, i in entries
             break if entry.prec < prec

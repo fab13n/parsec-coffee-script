@@ -19,6 +19,8 @@ cs.keywords = new lex.Keywords( "if", "else", "true", "false", "new",
   "||", "<<", ">>", ">>>", "<=", ">=", "++", "--", "->", "=>", "::",
   "==", "===", "..", "...")
 
+cs.keywords.addDetailedCatcode('keyword', 'interpStart')
+
 # Generic expression, to be populated later
 cs.expr = gg.named 'expr', gg.expr()
 
@@ -301,7 +303,8 @@ cs.string = gg.wrap(gg.string).setBuilder((x) -> tree 'String', x)
 cs.regex = gg.sequence(
     gg.regex,
     gg.maybe (gg.regexFlags)
-).setBuilder (regex, flags) ->
+).setBuilder (x) ->
+    [regex, flags] = x
     if flags then tree 'Regex', regex, flags else tree 'Regex', regex
 
 cs.interpString = gg.sequence(
@@ -322,10 +325,10 @@ cs.interpRegex = gg.sequence(
             gg.wrap(gg.regex).setBuilder (x) -> tree 'String', x)
     )
     gg.interpEnd,
-    gg.maybe (gg.regexFlags)
+    gg.maybe(gg.regexFlags)
 ).setBuilder (x) ->
     [ _, content, _, flags] = x
-    r = tree 'Op', 'new', (tree 'Id', 'Regex'), (tree 'Op', '+', content...)
+    r = tree 'Op', 'new', (tree 'Id', 'RegExp'), (tree 'Op', '+', content...)
     if flags then r.children.push (tree 'String', flags)
     return r
 
@@ -376,9 +379,10 @@ cs.primary = gg.named 'primary-expr', gg.choice(
     310,
     cs.number,
     cs.id,
-    #gg.regexp,
     cs.string,
     cs.interpString,
+    cs.regex,
+    cs.interpRegex,
     #gg.js,
     cs.array,
     gg.wrap("true").setBuilder(-> tree 'True'),
