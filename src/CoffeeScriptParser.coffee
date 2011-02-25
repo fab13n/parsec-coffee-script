@@ -47,12 +47,11 @@ cs.return = gg.sequence("return", gg.maybe cs.expr).setBuilder (x) ->
 # try ... catch ... finally
 cs.try = gg.sequence(
     "try", cs.lineOrBlock,
-    gg.maybe('catch', gg.sequence(gg.id, cs.lineOrBlock)).setBuilder(1),
-    gg.maybe('finally', cs.lineOrBlock).setBuilder(1)
+    gg.if('catch', gg.sequence(gg.id, cs.lineOrBlock)),
+    gg.if('finally', cs.lineOrBlock)
 ).setBuilder (x) ->
-    tblock = x[1]
-    [_, cid, cblock] = x[2] if x[2]
-    [_, fblock] = x[3] if x[3]
+    [_, tblock, cpair, fblock] = x
+    [cid, cblock] = cpair or [ ]
     return tree 'Try', tblock, cid, cblock, fblock
 
 # while/until ... when ..., shared by block-prefix and suffix forms
@@ -279,7 +278,12 @@ cs.array = cs.multiLine {
 .setBuilder (x) -> tree 'Array', x
 
 cs.objectEntry =
-    gg.sequence(gg.id, ':', cs.expr).setBuilder (x) -> [x[0], x[2]]
+    gg.sequence(
+        gg.id,
+        gg.if(':', cs.expr)
+    ).setBuilder (x) ->
+        [label, value] = x
+        [label, value ? label]
 
 cs.objectWithoutBraces = cs.multiLine({
     primary:   cs.objectEntry

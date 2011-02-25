@@ -7,7 +7,12 @@ util=require 'util'
 
 this.exports = this unless process?
 
-fail = exports.fail = { toString: -> "<FAIL>" }
+# Returned to indicate that a parser can't parse the given token stream
+fail  = exports.fail  = { toString: -> "<FAIL>" }
+
+# Returned to indicate that not only the parser cannot parse this
+# token stream, but this token stream is invalid.
+error = exports.error = { toString: -> "<ERROR>" }
 
 lastUid=1
 
@@ -338,7 +343,7 @@ exports.Sequence = class Sequence extends Parser
         for child, i in @children
             L.log 'sequence', "Sequence child ##{i}"
             x = child.parse(lx)
-            if x == fail
+            if x is fail
                 if i isnt 0 and not @backtrack
                     @error "failed on element ##{i}"
                 else
@@ -454,7 +459,7 @@ exports.Choice = class Choice extends Parser
             L.log 'choice',
                 "trying choice #{i+1}/#{entries.length} #{entry.parser} of prec #{entry.prec}"
             result = entry.parser.parse lx
-            return result unless result==fail
+            return result unless result is fail
         return fail
 
     toString: ->
@@ -480,7 +485,7 @@ exports.Maybe = class Maybe extends Parser
 
     parseInternal: (lx) ->
         result = @parser.parse(lx)
-        return (if result==fail then @default else result)
+        return (if result is fail then @default else result)
 
     toString: -> @name ? "Maybe(#{@parser})"
 
@@ -524,9 +529,9 @@ exports.List = class List extends Parser
         results = [ ]
         loop
             p = @primary.parse(lx)
-            if p==fail then break
+            if p is fail then break
             results.push p
-            if @separator? and @separator.parse(lx)==fail then break
+            if @separator? and @separator.parse(lx) is fail then break
 
         return fail if not @canBeEmpty and results.length==0
         return results
