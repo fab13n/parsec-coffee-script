@@ -29,7 +29,7 @@ NUMBER   = /^(0x[0-9a-fA-F]+)|(([0-9]+(\.[0-9]+)?|\.[0-9]+)(e[+\-]?[0-9]+)?)/
 class Token
     constructor: (fields) -> (@[k]=v) for k, v of fields
     toString: ->
-        "#{@t}[#{@i}#{if @v then ":'#{@v}'" else ""}#{if @s then ' S' else ''}]"
+        "#{@t}[#{@i}#{if @v? then ":'#{@v}'" else ""}#{if @s then ' S' else ''}]"
 
 #-------------------------------------------------------------------------------
 #
@@ -125,15 +125,15 @@ exports.Lexer = class Lexer
     #---------------------------------------------------------------------------
     tokenize: () ->
         @i            = 0
-        @indentLevels = [0]
+        @indentLevels = [ -1 ]
         @spaced       = true
-        tokens        = [@token 'indent', 0]
+        tokens        = [@token 'indent', -1]
         @spaced       = true # undone by @token above
         loop
             stepTokens = @step()
             break unless stepTokens?
             tokens = tokens.concat stepTokens
-        return tokens
+        return tokens[1...-1] # remove dummy indent level -1
 
     #---------------------------------------------------------------------------
     # Debug trace helper
@@ -154,14 +154,15 @@ exports.Lexer = class Lexer
     # * null when end-of-file is reached.
     #---------------------------------------------------------------------------
     step: ->
-        #@pWhere 'step'
+        @pWhere 'step'
         j=@i
         @i++ while @src[@i]==' ' or @src[@i]=='\t' #skip whitespace
         @spaced = true unless @i==j
         src_i = @src[@i]
         if not src_i? #EOF, close all pending indents
             return null unless @indentLevels?
-            x = (@token 'dedent', v for v in @indentLevels.reverse())
+            L.log 'algo', "flushing indent levels "+@indentLevels
+            x = (@token('dedent', v) for v in @indentLevels.reverse())
             @indentLevels = null
             return x
         else if src_i == '"'
@@ -234,13 +235,18 @@ exports.Lexer = class Lexer
                     @indentChar = ' '
                     @forbiddenIndentChar = '\t'
             j = i
-            j++ while @src[j] == @indentChar
+            if @indentChar
+                j++ while @src[j] == @indentChar
             src_j = @src[j]
             if src_j == '\n' # blank line
                 i=j+1
             else if src_j == '#' # comment-only line
                 i=j+1
                 i++ until @src[i] == '\n'
+            else if not src_j
+                L.log 'lexer', 'finalspace'
+                @i = j
+                return [ ] # only spaces up to EOF, no token
             else if src_j == @forbiddenIndentChar
                 @complain "don't mix tabs and spaces in indentation"
             else break
