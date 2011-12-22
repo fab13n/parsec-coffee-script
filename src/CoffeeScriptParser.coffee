@@ -17,7 +17,7 @@ cs.keywords = new lex.Keywords( "if", "else", "true", "false", "new",
   "__slice", "-=", "+=", "/=", "*=", "%=", "||=", "&&=", "?=", "<<=",
   ">>=", ">>>=", "&=", "^=", "|=", "typeof", "delete", "&&",
   "||", "<<", ">>", ">>>", "<=", ">=", "++", "--", "->", "=>", "::",
-  "==", "===", "..", "...")
+  "==", "===", "..", "...", '!=')
 
 cs.keywords.addDetailedCatcode('keyword', 'interpStart')
 
