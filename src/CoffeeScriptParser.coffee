@@ -270,11 +270,11 @@ class MultiLine extends gg.Parser
 
 cs.multiLine = (args) -> new MultiLine args
 
-cs.array = cs.multiLine {
+cs.array = (cs.multiLine {
     prefix:    '['
     primary:   cs.exprOrSplat
     separator: gg.choice(',', ';', gg.one)
-    suffix:    ']' }
+    suffix:    ']' })
 .setBuilder (x) -> tree 'Array', x
 
 cs.objectEntry =
