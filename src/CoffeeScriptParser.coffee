@@ -533,6 +533,13 @@ suffix
     parser:[gg.noSpace, '[', cs.expr, ']'], prec:90,
     builder: (x, y) -> tree 'Accessor', x, y[2]
 
+# main lexing function
+cs.lex = (src) ->
+    lexer  = new lex.Lexer(src, cs.keywords)
+    stream = new lex.Stream lexer
+    print("\nTokens: \n#{stream.tokens.join('\n')}\n\n")
+    stream
+
 # main parsing function
 cs.parse = (parser, src) ->
     if not src?
@@ -541,9 +548,7 @@ cs.parse = (parser, src) ->
         parser = cs[parser]
     else unless parser instanceof gg.Parser
         throw new Error "bad args"
-    lexer  = new lex.Lexer(src, cs.keywords)
-    stream = new lex.Stream lexer
-    # print("\nTokens: \n#{stream.tokens.join('\n')}\n\n")
+    stream = cs.lex src
     parser.parse stream
 
 for name, p of cs
